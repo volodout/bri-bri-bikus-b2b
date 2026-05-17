@@ -1,0 +1,34 @@
+from __future__ import annotations
+
+from fastapi import FastAPI
+from fastapi.exceptions import RequestValidationError
+from starlette.exceptions import HTTPException as StarletteHTTPException
+
+from app.b2b_client import B2BClient
+from app.errors import (
+    CatalogError,
+    catalog_error_handler,
+    http_exception_handler,
+    validation_exception_handler,
+)
+from app.routes import facets, products
+
+
+def create_app(b2b_client: B2BClient | None = None) -> FastAPI:
+    app = FastAPI(
+        title="NeoMarket B2C Catalog",
+        version="0.1.0",
+        description="B2C catalog service. Proxies catalog queries to B2B.",
+    )
+    app.state.b2b_client = b2b_client or B2BClient()
+
+    app.add_exception_handler(CatalogError, catalog_error_handler)
+    app.add_exception_handler(StarletteHTTPException, http_exception_handler)
+    app.add_exception_handler(RequestValidationError, validation_exception_handler)
+
+    app.include_router(products.router)
+    app.include_router(facets.router)
+    return app
+
+
+app = create_app()
