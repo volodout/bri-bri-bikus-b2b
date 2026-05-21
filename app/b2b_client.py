@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from typing import Any, Mapping
-from urllib.parse import urlencode
 
 import httpx
 
@@ -14,6 +13,10 @@ class B2BClient:
 
     Visibility (status=MODERATED, deleted=false, active_quantity>0) is enforced
     by B2B itself; B2C only proxies the request with the service key.
+
+    A single underlying ``httpx.AsyncClient`` is reused across calls to keep
+    connections warm (HTTP keep-alive and pool reuse). The app's lifespan
+    closes it on shutdown via :meth:`aclose`.
     """
 
     def __init__(
@@ -27,19 +30,27 @@ class B2BClient:
         self._service_key = service_key or settings.b2b_service_key
         self._timeout = timeout or settings.b2b_timeout_seconds
         self._transport = transport
+        self._async_client: httpx.AsyncClient | None = None
 
     def _client(self) -> httpx.AsyncClient:
-        return httpx.AsyncClient(
-            base_url=self._base_url,
-            timeout=self._timeout,
-            headers={"X-Service-Key": self._service_key},
-            transport=self._transport,
-        )
+        if self._async_client is None:
+            self._async_client = httpx.AsyncClient(
+                base_url=self._base_url,
+                timeout=self._timeout,
+                headers={"X-Service-Key": self._service_key},
+                transport=self._transport,
+            )
+        return self._async_client
+
+    async def aclose(self) -> None:
+        if self._async_client is not None:
+            await self._async_client.aclose()
+            self._async_client = None
 
     async def _get(self, path: str, params: list[tuple[str, str]] | Mapping[str, Any]) -> dict:
+        client = self._client()
         try:
-            async with self._client() as client:
-                response = await client.get(path, params=params)
+            response = await client.get(path, params=params)
         except (httpx.ConnectError, httpx.ReadError, httpx.TimeoutException, httpx.NetworkError):
             raise B2BUnavailable()
         except httpx.HTTPError as exc:
@@ -47,7 +58,12 @@ class B2BClient:
 
         status = response.status_code
         if 200 <= status < 300:
-            return response.json()
+            try:
+                return response.json()
+            except ValueError:
+                # Upstream violated its contract: 2xx with non-JSON body.
+                # Surface as 502 so the public API keeps the {code,message} shape.
+                raise B2BUnavailable("Upstream returned invalid JSON")
         if status == 400:
             payload = _safe_json(response)
             raise InvalidRequest(_extract_message(payload, "Invalid request"))

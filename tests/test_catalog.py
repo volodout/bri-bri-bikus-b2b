@@ -164,7 +164,9 @@ async def test_b2b_unavailable_returns_502(client, b2b_recorder, failure_mode):
             params={"category_id": CATEGORY_ID},
         )
 
-    assert response.status_code in (502, 503)
+    # B2BUnavailable is always mapped to 502 regardless of upstream status — the
+    # public contract must not leak upstream's 503/504.
+    assert response.status_code == 502
     body = response.json()
     assert body["code"] == "UPSTREAM_UNAVAILABLE"
     assert isinstance(body["message"], str) and body["message"]
@@ -186,6 +188,25 @@ async def test_facets_missing_category_id_returns_400(client, b2b_recorder):
     body = response.json()
     assert body["code"] == "INVALID_REQUEST"
     assert "category_id" in body["message"]
+
+
+async def test_b2b_returns_invalid_json_yields_502(client, b2b_recorder):
+    # Upstream contract violation: 2xx with a body that isn't JSON.
+    # Must not surface as a default-500 — keep the {code,message} 502 shape.
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=b"<html>not json</html>", headers={"content-type": "text/html"})
+
+    b2b_recorder.set_handler(handler)
+
+    async with client as ac:
+        response = await ac.get(
+            "/api/v1/products",
+            params={"category_id": CATEGORY_ID},
+        )
+
+    assert response.status_code == 502
+    body = response.json()
+    assert body["code"] == "UPSTREAM_UNAVAILABLE"
 
 
 async def test_empty_category_returns_empty_list(client, b2b_recorder):
