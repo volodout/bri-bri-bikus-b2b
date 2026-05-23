@@ -26,6 +26,11 @@ class NotFound(CatalogError):
         super().__init__(404, "NOT_FOUND", message)
 
 
+class OrphanCategoryHierarchy(CatalogError):
+    def __init__(self, message: str = "Category hierarchy is broken"):
+        super().__init__(422, "ORPHAN_NODE", message)
+
+
 def _payload(code: str, message: str) -> dict:
     return {"code": code, "message": message}
 
