@@ -10,6 +10,7 @@ from app.query_parsing import (
     validate_sort,
     validate_uuid,
 )
+from app.serializers import to_public_product
 
 router = APIRouter()
 
@@ -51,3 +52,11 @@ async def list_products(request: Request) -> dict:
 
     client = get_b2b_client(request)
     return await client.list_products(upstream_query)
+
+
+@router.get("/api/v1/products/{product_id}")
+async def get_product(request: Request, product_id: str) -> dict:
+    validate_uuid(product_id, field="id")
+    client = get_b2b_client(request)
+    payload = await client.get_product(product_id)
+    return to_public_product(payload)
