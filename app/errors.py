@@ -37,11 +37,42 @@ async def catalog_error_handler(_: Request, exc: CatalogError) -> JSONResponse:
     )
 
 
+# Maps HTTP status -> canonical `code` token. Every 4xx/5xx that the framework
+# raises (unknown route, wrong method, validation, etc.) must surface through
+# this map — never the framework default `{"detail": "..."}`.
+_CODE_BY_STATUS: dict[int, str] = {
+    400: "INVALID_REQUEST",
+    401: "UNAUTHORIZED",
+    403: "FORBIDDEN",
+    404: "NOT_FOUND",
+    405: "METHOD_NOT_ALLOWED",
+    409: "CONFLICT",
+    415: "UNSUPPORTED_MEDIA_TYPE",
+    422: "INVALID_REQUEST",
+    429: "TOO_MANY_REQUESTS",
+    500: "INTERNAL_ERROR",
+    502: "UPSTREAM_UNAVAILABLE",
+    503: "UPSTREAM_UNAVAILABLE",
+    504: "UPSTREAM_UNAVAILABLE",
+}
+
+
+def _code_for_status(status: int) -> str:
+    if status in _CODE_BY_STATUS:
+        return _CODE_BY_STATUS[status]
+    if 400 <= status < 500:
+        return "CLIENT_ERROR"
+    if 500 <= status < 600:
+        return "SERVER_ERROR"
+    return "ERROR"
+
+
 async def http_exception_handler(_: Request, exc: StarletteHTTPException) -> JSONResponse:
-    code_by_status = {400: "INVALID_REQUEST", 404: "NOT_FOUND", 502: "UPSTREAM_UNAVAILABLE", 503: "UPSTREAM_UNAVAILABLE"}
-    code = code_by_status.get(exc.status_code, "ERROR")
-    detail = exc.detail if isinstance(exc.detail, str) else "Error"
-    return JSONResponse(status_code=exc.status_code, content=_payload(code, detail))
+    detail = exc.detail if isinstance(exc.detail, str) and exc.detail else "Error"
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=_payload(_code_for_status(exc.status_code), detail),
+    )
 
 
 async def validation_exception_handler(_: Request, exc: RequestValidationError) -> JSONResponse:

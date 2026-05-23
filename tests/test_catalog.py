@@ -223,3 +223,54 @@ async def test_empty_category_returns_empty_list(client, b2b_recorder):
 
     assert response.status_code == 200
     assert response.json() == {"items": [], "total_count": 0, "limit": 20, "offset": 0}
+
+
+# ---------------------------------------------------------------------------
+# Error-contract audit: every 4xx MUST return {code, message}, never the
+# framework default {"detail": "..."}. Cover each channel a default could leak:
+#   - unknown route             (Starlette raises HTTPException(404))
+#   - wrong method on a route   (Starlette raises HTTPException(405))
+#   - invalid integer query     (manual InvalidRequest in our parser)
+#   - non-UUID category_id      (manual InvalidRequest in our parser)
+#   - short/long search query   (manual InvalidRequest in our parser)
+# ---------------------------------------------------------------------------
+def _assert_error_contract(body: dict, *, expected_code: str) -> None:
+    assert "detail" not in body, f"framework default leaked: {body!r}"
+    assert set(body.keys()) == {"code", "message"}, f"unexpected keys: {body!r}"
+    assert body["code"] == expected_code
+    assert isinstance(body["message"], str) and body["message"]
+
+
+async def test_unknown_route_returns_code_message_404(client, b2b_recorder):
+    async with client as ac:
+        response = await ac.get("/api/v1/this-route-does-not-exist")
+    assert response.status_code == 404
+    _assert_error_contract(response.json(), expected_code="NOT_FOUND")
+
+
+async def test_wrong_method_returns_code_message(client, b2b_recorder):
+    async with client as ac:
+        response = await ac.post("/api/v1/products")
+    assert response.status_code == 405
+    _assert_error_contract(response.json(), expected_code="METHOD_NOT_ALLOWED")
+
+
+async def test_non_integer_limit_returns_code_message_400(client, b2b_recorder):
+    async with client as ac:
+        response = await ac.get("/api/v1/products", params={"limit": "abc"})
+    assert response.status_code == 400
+    _assert_error_contract(response.json(), expected_code="INVALID_REQUEST")
+
+
+async def test_non_uuid_category_id_returns_code_message_400(client, b2b_recorder):
+    async with client as ac:
+        response = await ac.get("/api/v1/products", params={"category_id": "not-a-uuid"})
+    assert response.status_code == 400
+    _assert_error_contract(response.json(), expected_code="INVALID_REQUEST")
+
+
+async def test_short_search_returns_code_message_400(client, b2b_recorder):
+    async with client as ac:
+        response = await ac.get("/api/v1/products", params={"search": "ab"})
+    assert response.status_code == 400
+    _assert_error_contract(response.json(), expected_code="INVALID_REQUEST")
