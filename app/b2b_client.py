@@ -80,6 +80,13 @@ class B2BClient:
     async def get_product(self, product_id: str) -> dict:
         return await self._get(f"/api/v1/products/{product_id}", ())
 
+    async def get_similar_products(
+        self,
+        product_id: str,
+        query: list[tuple[str, str]],
+    ) -> dict:
+        return await self._get(f"/api/v1/products/{product_id}/similar", query)
+
     async def get_facets(self, query: list[tuple[str, str]]) -> dict:
         return await self._get("/api/v1/catalog/facets", query)
 

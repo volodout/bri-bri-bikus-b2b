@@ -40,6 +40,16 @@ def validate_pagination(limit: int | None, offset: int | None) -> tuple[int, int
     return effective_limit, effective_offset
 
 
+def validate_similar_pagination(limit: int | None, offset: int | None) -> tuple[int, int]:
+    effective_limit = 8 if limit is None else limit
+    effective_offset = 0 if offset is None else offset
+    if effective_limit < 1 or effective_limit > 20:
+        raise InvalidRequest("limit must be between 1 and 20")
+    if effective_offset < 0:
+        raise InvalidRequest("offset must be >= 0")
+    return effective_limit, effective_offset
+
+
 def validate_uuid(value: str | None, *, field: str) -> str | None:
     if value is None or value == "":
         return None
