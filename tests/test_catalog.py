@@ -232,7 +232,6 @@ async def test_empty_category_returns_empty_list(client, b2b_recorder):
 #   - wrong method on a route   (Starlette raises HTTPException(405))
 #   - invalid integer query     (manual InvalidRequest in our parser)
 #   - non-UUID category_id      (manual InvalidRequest in our parser)
-#   - short/long search query   (manual InvalidRequest in our parser)
 # ---------------------------------------------------------------------------
 def _assert_error_contract(body: dict, *, expected_code: str) -> None:
     assert "detail" not in body, f"framework default leaked: {body!r}"
@@ -265,12 +264,5 @@ async def test_non_integer_limit_returns_code_message_400(client, b2b_recorder):
 async def test_non_uuid_category_id_returns_code_message_400(client, b2b_recorder):
     async with client as ac:
         response = await ac.get("/api/v1/products", params={"category_id": "not-a-uuid"})
-    assert response.status_code == 400
-    _assert_error_contract(response.json(), expected_code="INVALID_REQUEST")
-
-
-async def test_short_search_returns_code_message_400(client, b2b_recorder):
-    async with client as ac:
-        response = await ac.get("/api/v1/products", params={"search": "ab"})
     assert response.status_code == 400
     _assert_error_contract(response.json(), expected_code="INVALID_REQUEST")

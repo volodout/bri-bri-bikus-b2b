@@ -6,7 +6,6 @@ from app.b2b_client import B2BClient
 from app.query_parsing import (
     extract_filters,
     validate_pagination,
-    validate_search,
     validate_sort,
     validate_uuid,
 )
@@ -35,7 +34,6 @@ async def list_products(request: Request) -> dict:
     limit, offset = validate_pagination(limit, offset)
     sort = validate_sort(request.query_params.get("sort"))
     category_id = validate_uuid(request.query_params.get("category_id"), field="category_id")
-    search = validate_search(request.query_params.get("search"))
 
     upstream_query: list[tuple[str, str]] = [
         ("limit", str(limit)),
@@ -45,8 +43,6 @@ async def list_products(request: Request) -> dict:
         upstream_query.append(("sort", sort))
     if category_id is not None:
         upstream_query.append(("category_id", category_id))
-    if search is not None:
-        upstream_query.append(("search", search))
     upstream_query.extend(extract_filters(raw_params))
 
     client = get_b2b_client(request)
