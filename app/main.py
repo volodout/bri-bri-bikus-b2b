@@ -13,7 +13,7 @@ from app.errors import (
     http_exception_handler,
     validation_exception_handler,
 )
-from app.routes import facets, products
+from app.routes import categories, facets, products
 
 
 def create_app(b2b_client: B2BClient | None = None) -> FastAPI:
@@ -40,6 +40,7 @@ def create_app(b2b_client: B2BClient | None = None) -> FastAPI:
 
     app.include_router(products.router)
     app.include_router(facets.router)
+    app.include_router(categories.router)
     return app
 
 
