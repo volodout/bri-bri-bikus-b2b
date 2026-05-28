@@ -90,6 +90,18 @@ class B2BClient:
     async def get_facets(self, query: list[tuple[str, str]]) -> dict:
         return await self._get("/api/v1/catalog/facets", query)
 
+    async def list_categories(self) -> dict:
+        return await self._get("/api/v1/categories", ())
+
+    async def get_category(self, category_id: str, *, include_product_count: bool) -> dict:
+        params: list[tuple[str, str]] = []
+        if include_product_count:
+            params.append(("include_product_count", "true"))
+        return await self._get(f"/api/v1/categories/{category_id}", params)
+
+    async def get_breadcrumbs(self, query: list[tuple[str, str]]) -> dict:
+        return await self._get("/api/v1/breadcrumbs", query)
+
 
 def _safe_json(response: httpx.Response) -> dict:
     try:
