@@ -48,6 +48,16 @@ def validate_uuid(value: str | None, *, field: str) -> str | None:
     return value
 
 
+def validate_search(value: str | None) -> str | None:
+    if value is None or value == "":
+        return None
+    if len(value) < 3:
+        raise InvalidRequest("Search query must be at least 3 characters")
+    if len(value) > 255:
+        raise InvalidRequest("Search query must be at most 255 characters")
+    return value
+
+
 def extract_filters(items: Iterable[tuple[str, str]]) -> list[tuple[str, str]]:
     """Pull `filters[key]=value` pairs from raw query items.
 
