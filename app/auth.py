@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import binascii
 import json
 
 from fastapi import Request
@@ -25,7 +26,7 @@ def user_id_from_jwt(request: Request) -> str:
     try:
         payload_bytes = _base64url_decode(parts[1])
         payload = json.loads(payload_bytes)
-    except (ValueError, TypeError):
+    except (binascii.Error, UnicodeDecodeError, ValueError, TypeError):
         raise Unauthorized("Invalid token")
 
     sub = payload.get("sub")

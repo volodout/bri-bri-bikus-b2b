@@ -5,6 +5,7 @@ import json
 from urllib.parse import parse_qs
 
 import httpx
+import pytest
 
 USER_ID = "123e4567-e89b-12d3-a456-426614174000"
 OTHER_USER_ID = "223e4567-e89b-12d3-a456-426614174000"
@@ -155,6 +156,28 @@ async def test_user_id_from_query_is_ignored(client, b2b_recorder):
     assert own_response.json()["total"] == 1
     assert other_response.status_code == 200
     assert other_response.json() == {"items": [], "total": 0}
+
+
+@pytest.mark.parametrize("method", ["post", "get"])
+async def test_b2b_unavailable_returns_503_for_favorites(client, b2b_recorder, method):
+    def unavailable(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("upstream unreachable", request=request)
+
+    def available(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=product())
+
+    async with client as ac:
+        if method == "post":
+            b2b_recorder.set_handler(unavailable)
+            response = await ac.post(f"/api/v1/favorites/{PRODUCT_ID}", headers=auth_headers())
+        else:
+            b2b_recorder.set_handler(available)
+            await ac.post(f"/api/v1/favorites/{PRODUCT_ID}", headers=auth_headers())
+            b2b_recorder.set_handler(unavailable)
+            response = await ac.get("/api/v1/favorites", headers=auth_headers())
+
+    assert response.status_code == 503
+    assert response.json()["code"] == "B2B_UNAVAILABLE"
 
 
 def _b64(payload: dict) -> str:

@@ -7,6 +7,7 @@ import httpx
 import pytest
 
 from app.b2b_client import B2BClient
+from app.favorites import InMemoryFavoriteRepository
 from app.main import create_app
 
 
@@ -57,6 +58,9 @@ def client(b2b_recorder):
         service_key="test-service-key",
         transport=b2b_recorder.transport,
     )
-    app = create_app(b2b_client=b2b)
+    app = create_app(
+        b2b_client=b2b,
+        favorite_repository=InMemoryFavoriteRepository(),
+    )
     transport = httpx.ASGITransport(app=app)
     return httpx.AsyncClient(transport=transport, base_url="http://b2c.test")

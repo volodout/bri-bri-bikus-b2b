@@ -16,6 +16,11 @@ class B2BUnavailable(CatalogError):
         super().__init__(502, "UPSTREAM_UNAVAILABLE", message)
 
 
+class FavoritesB2BUnavailable(CatalogError):
+    def __init__(self, message: str = "B2B service temporarily unavailable"):
+        super().__init__(503, "B2B_UNAVAILABLE", message)
+
+
 class InvalidRequest(CatalogError):
     def __init__(self, message: str):
         super().__init__(400, "INVALID_REQUEST", message)

@@ -34,7 +34,9 @@ pip install -r requirements-dev.txt
 # конфиг через env
 export B2B_BASE_URL=http://localhost:8001
 export B2B_SERVICE_KEY=dev-service-key
+export DATABASE_URL=postgresql://neomarket:neomarket@localhost:5432/neomarket
 
+alembic upgrade head
 uvicorn app.main:app --reload
 ```
 
@@ -44,7 +46,7 @@ uvicorn app.main:app --reload
 pytest -v
 ```
 
-GitHub Actions (`.github/workflows/tests.yml`) прогоняет 4 именованных теста из DoD:
+GitHub Actions (`.github/workflows/tests.yml`) прогоняет именованные тесты из DoD:
 
 - `catalog_returns_filtered_sorted_products`
 - `facets_return_counts_per_filter_value`

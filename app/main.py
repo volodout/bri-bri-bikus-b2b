@@ -13,7 +13,8 @@ from app.errors import (
     http_exception_handler,
     validation_exception_handler,
 )
-from app.favorites import FavoriteRepository, FavoriteService, InMemoryFavoriteRepository
+from app.config import settings
+from app.favorites import FavoriteRepository, FavoriteService, PostgresFavoriteRepository
 from app.routes import categories, facets, favorites, products
 
 
@@ -22,13 +23,14 @@ def create_app(
     favorite_repository: FavoriteRepository | None = None,
 ) -> FastAPI:
     client = b2b_client or B2BClient()
-    favorites_repo = favorite_repository or InMemoryFavoriteRepository()
+    favorites_repo = favorite_repository or PostgresFavoriteRepository(settings.database_url)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         try:
             yield
         finally:
+            await favorites_repo.aclose()
             await client.aclose()
 
     app = FastAPI(
