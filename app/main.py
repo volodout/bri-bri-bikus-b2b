@@ -13,11 +13,16 @@ from app.errors import (
     http_exception_handler,
     validation_exception_handler,
 )
-from app.routes import categories, facets, products
+from app.favorites import FavoriteRepository, FavoriteService, InMemoryFavoriteRepository
+from app.routes import categories, facets, favorites, products
 
 
-def create_app(b2b_client: B2BClient | None = None) -> FastAPI:
+def create_app(
+    b2b_client: B2BClient | None = None,
+    favorite_repository: FavoriteRepository | None = None,
+) -> FastAPI:
     client = b2b_client or B2BClient()
+    favorites_repo = favorite_repository or InMemoryFavoriteRepository()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -33,6 +38,8 @@ def create_app(b2b_client: B2BClient | None = None) -> FastAPI:
         lifespan=lifespan,
     )
     app.state.b2b_client = client
+    app.state.favorite_repository = favorites_repo
+    app.state.favorite_service = FavoriteService(favorites_repo, client)
 
     app.add_exception_handler(CatalogError, catalog_error_handler)
     app.add_exception_handler(StarletteHTTPException, http_exception_handler)
@@ -41,6 +48,7 @@ def create_app(b2b_client: B2BClient | None = None) -> FastAPI:
     app.include_router(products.router)
     app.include_router(facets.router)
     app.include_router(categories.router)
+    app.include_router(favorites.router)
     return app
 
 
