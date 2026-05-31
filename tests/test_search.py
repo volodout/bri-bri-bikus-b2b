@@ -3,6 +3,8 @@ from __future__ import annotations
 import httpx
 import pytest
 
+CATALOG_PRODUCTS = "/api/v1/catalog/products"
+
 
 def _list_payload(items: list[dict]) -> dict:
     return {"items": items, "total_count": len(items), "limit": 20, "offset": 0}
@@ -16,8 +18,8 @@ def _assert_error_contract(body: dict, *, expected_code: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Happy path: GET /api/v1/products?search=... proxies the term to B2B and
-# returns the items B2B matched on title/description.
+# Happy path: GET /api/v1/catalog/products?q=... — the public `q` param is
+# translated to the B2B `search` param and B2B's matched items are returned.
 # ---------------------------------------------------------------------------
 async def test_search_returns_matching_products(client, b2b_recorder):
     b2b_payload = _list_payload(
@@ -42,15 +44,14 @@ async def test_search_returns_matching_products(client, b2b_recorder):
     )
 
     def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/api/v1/products"
         return httpx.Response(200, json=b2b_payload)
 
     b2b_recorder.set_handler(handler)
 
     async with client as ac:
         response = await ac.get(
-            "/api/v1/products",
-            params=[("search", "наушники"), ("limit", "20"), ("offset", "0")],
+            CATALOG_PRODUCTS,
+            params=[("q", "наушники"), ("limit", "20"), ("offset", "0")],
         )
 
     assert response.status_code == 200
@@ -76,7 +77,7 @@ async def test_short_query_returns_400(client, b2b_recorder, short_value):
     b2b_recorder.set_handler(handler)
 
     async with client as ac:
-        response = await ac.get("/api/v1/products", params={"search": short_value})
+        response = await ac.get(CATALOG_PRODUCTS, params={"q": short_value})
 
     assert response.status_code == 400
     _assert_error_contract(response.json(), expected_code="INVALID_REQUEST")
@@ -86,7 +87,7 @@ async def test_short_query_returns_400(client, b2b_recorder, short_value):
 
 # ---------------------------------------------------------------------------
 # Edge case: SQL/LIKE special characters (%, _, ') must NOT break B2C: they
-# are forwarded verbatim, and B2B is responsible for SQL-escaping before LIKE.
+# are forwarded verbatim to B2B, which is responsible for SQL-escaping.
 # ---------------------------------------------------------------------------
 @pytest.mark.parametrize(
     "search_value",
@@ -108,7 +109,7 @@ async def test_special_chars_do_not_break_query(client, b2b_recorder, search_val
     b2b_recorder.set_handler(handler)
 
     async with client as ac:
-        response = await ac.get("/api/v1/products", params={"search": search_value})
+        response = await ac.get(CATALOG_PRODUCTS, params={"q": search_value})
 
     assert response.status_code == 200
     assert response.json() == _list_payload([])
@@ -126,10 +127,7 @@ async def test_empty_results_returns_200(client, b2b_recorder):
     b2b_recorder.set_handler(handler)
 
     async with client as ac:
-        response = await ac.get(
-            "/api/v1/products",
-            params={"search": "несуществующий товар"},
-        )
+        response = await ac.get(CATALOG_PRODUCTS, params={"q": "несуществующий товар"})
 
     assert response.status_code == 200
     body = response.json()
@@ -150,9 +148,9 @@ async def test_search_combines_with_filters_and_category(client, b2b_recorder):
 
     async with client as ac:
         response = await ac.get(
-            "/api/v1/products",
+            CATALOG_PRODUCTS,
             params=[
-                ("search", "наушники"),
+                ("q", "наушники"),
                 ("category_id", category_id),
                 ("filters[brand]", "Sony"),
                 ("sort", "price_asc"),
@@ -168,7 +166,7 @@ async def test_search_combines_with_filters_and_category(client, b2b_recorder):
 
 
 # ---------------------------------------------------------------------------
-# Bonus: queries over 255 chars -> 400 (OpenAPI maxLength).
+# Bonus: queries over 200 chars -> 400 (OpenAPI b2c.yaml `q` maxLength: 200).
 # ---------------------------------------------------------------------------
 async def test_long_query_returns_400(client, b2b_recorder):
     def handler(request: httpx.Request) -> httpx.Response:  # pragma: no cover
@@ -177,9 +175,9 @@ async def test_long_query_returns_400(client, b2b_recorder):
     b2b_recorder.set_handler(handler)
 
     async with client as ac:
-        response = await ac.get("/api/v1/products", params={"search": "x" * 256})
+        response = await ac.get(CATALOG_PRODUCTS, params={"q": "x" * 201})
 
     assert response.status_code == 400
     _assert_error_contract(response.json(), expected_code="INVALID_REQUEST")
-    assert "255" in response.json()["message"]
+    assert "200" in response.json()["message"]
     assert b2b_recorder.requests == []
