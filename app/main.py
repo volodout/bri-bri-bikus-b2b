@@ -15,21 +15,29 @@ from app.errors import (
 )
 from app.config import settings
 from app.favorites import FavoriteRepository, FavoriteService, PostgresFavoriteRepository
+from app.subscriptions import (
+    PostgresProductSubscriptionRepository,
+    ProductSubscriptionRepository,
+    ProductSubscriptionService,
+)
 from app.routes import categories, facets, favorites, products
 
 
 def create_app(
     b2b_client: B2BClient | None = None,
     favorite_repository: FavoriteRepository | None = None,
+    subscription_repository: ProductSubscriptionRepository | None = None,
 ) -> FastAPI:
     client = b2b_client or B2BClient()
     favorites_repo = favorite_repository or PostgresFavoriteRepository(settings.database_url)
+    subscriptions_repo = subscription_repository or PostgresProductSubscriptionRepository(settings.database_url)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         try:
             yield
         finally:
+            await subscriptions_repo.aclose()
             await favorites_repo.aclose()
             await client.aclose()
 
@@ -42,6 +50,8 @@ def create_app(
     app.state.b2b_client = client
     app.state.favorite_repository = favorites_repo
     app.state.favorite_service = FavoriteService(favorites_repo, client)
+    app.state.subscription_repository = subscriptions_repo
+    app.state.subscription_service = ProductSubscriptionService(subscriptions_repo, client)
 
     app.add_exception_handler(CatalogError, catalog_error_handler)
     app.add_exception_handler(StarletteHTTPException, http_exception_handler)

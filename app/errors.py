@@ -36,6 +36,26 @@ class Unauthorized(CatalogError):
         super().__init__(401, "UNAUTHORIZED", message)
 
 
+class Forbidden(CatalogError):
+    def __init__(self, message: str = "Forbidden"):
+        super().__init__(403, "FORBIDDEN", message)
+
+
+class Conflict(CatalogError):
+    def __init__(self, code: str, message: str):
+        super().__init__(409, code, message)
+
+
+class ProductNotFound(CatalogError):
+    def __init__(self, message: str = "Product not found"):
+        super().__init__(404, "PRODUCT_NOT_FOUND", message)
+
+
+class InvalidNotifyOn(CatalogError):
+    def __init__(self, message: str = "Invalid notify_on"):
+        super().__init__(400, "INVALID_NOTIFY_ON", message)
+
+
 class OrphanCategoryHierarchy(CatalogError):
     def __init__(self, message: str = "Category hierarchy is broken"):
         super().__init__(422, "ORPHAN_NODE", message)

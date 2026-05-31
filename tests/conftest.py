@@ -9,6 +9,7 @@ import pytest
 from app.b2b_client import B2BClient
 from app.favorites import InMemoryFavoriteRepository
 from app.main import create_app
+from app.subscriptions import InMemoryProductSubscriptionRepository
 
 
 HandlerFn = Callable[[httpx.Request], httpx.Response]
@@ -61,6 +62,7 @@ def client(b2b_recorder):
     app = create_app(
         b2b_client=b2b,
         favorite_repository=InMemoryFavoriteRepository(),
+        subscription_repository=InMemoryProductSubscriptionRepository(),
     )
     transport = httpx.ASGITransport(app=app)
     return httpx.AsyncClient(transport=transport, base_url="http://b2c.test")

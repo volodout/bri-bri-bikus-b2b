@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-import base64
-import json
+import time
 from urllib.parse import parse_qs
+from uuid import uuid4
 
 import httpx
+import jwt
 import pytest
 
 USER_ID = "123e4567-e89b-12d3-a456-426614174000"
@@ -14,9 +15,19 @@ BLOCKED_PRODUCT_ID = "650e8400-e29b-41d4-a716-446655440000"
 
 
 def auth_headers(user_id: str = USER_ID) -> dict[str, str]:
-    header = _b64({"alg": "none", "typ": "JWT"})
-    payload = _b64({"sub": user_id})
-    return {"Authorization": f"Bearer {header}.{payload}."}
+    now = int(time.time())
+    token = jwt.encode(
+        {
+            "sub": user_id,
+            "role": "buyer",
+            "iat": now,
+            "exp": now + 3600,
+            "jti": str(uuid4()),
+        },
+        "dev-jwt-secret-for-tests-32-bytes",
+        algorithm="HS256",
+    )
+    return {"Authorization": f"Bearer {token}"}
 
 
 def product(product_id: str = PRODUCT_ID, title: str = "iPhone 15 Pro Max") -> dict:
@@ -180,6 +191,113 @@ async def test_b2b_unavailable_returns_503_for_favorites(client, b2b_recorder, m
     assert response.json()["code"] == "B2B_UNAVAILABLE"
 
 
-def _b64(payload: dict) -> str:
-    raw = json.dumps(payload, separators=(",", ":")).encode()
-    return base64.urlsafe_b64encode(raw).decode().rstrip("=")
+async def test_subscribe_returns_201_with_notify_on(client, b2b_recorder):
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == f"/api/v1/products/{PRODUCT_ID}"
+        return httpx.Response(200, json=product())
+
+    b2b_recorder.set_handler(handler)
+
+    async with client as ac:
+        response = await ac.post(
+            f"/api/v1/favorites/{PRODUCT_ID}/subscribe",
+            json={"notify_on": ["IN_STOCK", "PRICE_DOWN"]},
+            headers=auth_headers(),
+        )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["product"]["id"] == PRODUCT_ID
+    assert body["notify_on"] == ["IN_STOCK", "PRICE_DOWN"]
+    assert body["created_at"].endswith("Z")
+    assert isinstance(body["id"], str)
+
+
+async def test_duplicate_subscription_returns_409(client, b2b_recorder):
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=product())
+
+    b2b_recorder.set_handler(handler)
+
+    async with client as ac:
+        first = await ac.post(
+            f"/api/v1/favorites/{PRODUCT_ID}/subscribe",
+            json={"notify_on": ["IN_STOCK"]},
+            headers=auth_headers(),
+        )
+        second = await ac.post(
+            f"/api/v1/favorites/{PRODUCT_ID}/subscribe",
+            json={"notify_on": ["PRICE_DOWN"]},
+            headers=auth_headers(),
+        )
+
+    assert first.status_code == 201
+    assert second.status_code == 409
+    assert second.json()["code"] == "SUBSCRIPTION_ALREADY_EXISTS"
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"notify_on": []},
+        {"notify_on": ["WRONG"]},
+        {"notify_on": [1]},
+        {"notify_on": ["IN_STOCK", 1]},
+        {},
+    ],
+)
+async def test_invalid_notify_on_returns_400(client, b2b_recorder, payload):
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise AssertionError("B2B must not be called when notify_on is invalid")
+
+    b2b_recorder.set_handler(handler)
+
+    async with client as ac:
+        response = await ac.post(
+            f"/api/v1/favorites/{PRODUCT_ID}/subscribe",
+            json=payload,
+            headers=auth_headers(),
+        )
+
+    assert response.status_code == 400
+    assert response.json()["code"] == "INVALID_NOTIFY_ON"
+    assert b2b_recorder.requests == []
+
+
+async def test_subscribe_to_unknown_product_returns_404(client, b2b_recorder):
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, json={"message": "Product not found"})
+
+    b2b_recorder.set_handler(handler)
+
+    async with client as ac:
+        response = await ac.post(
+            f"/api/v1/favorites/{PRODUCT_ID}/subscribe",
+            json={"notify_on": ["IN_STOCK"]},
+            headers=auth_headers(),
+        )
+
+    assert response.status_code == 404
+    assert response.json()["code"] == "PRODUCT_NOT_FOUND"
+
+
+async def test_unsubscribe_returns_204(client, b2b_recorder):
+    async with client as ac:
+        response = await ac.delete(
+            f"/api/v1/favorites/{PRODUCT_ID}/subscribe",
+            headers=auth_headers(),
+        )
+
+    assert response.status_code == 204
+    assert b2b_recorder.requests == []
+
+
+async def test_invalid_jwt_returns_401(client, b2b_recorder):
+    async with client as ac:
+        response = await ac.get(
+            "/api/v1/favorites",
+            headers={"Authorization": "Bearer invalid.token.value"},
+        )
+
+    assert response.status_code == 401
+    assert response.json()["code"] == "UNAUTHORIZED"

@@ -7,12 +7,17 @@ from app.auth import user_id_from_jwt
 from app.errors import InvalidRequest
 from app.favorites import FavoriteService
 from app.query_parsing import validate_pagination, validate_uuid
+from app.subscriptions import ProductSubscriptionService
 
 router = APIRouter()
 
 
 def get_favorite_service(request: Request) -> FavoriteService:
     return request.app.state.favorite_service
+
+
+def get_subscription_service(request: Request) -> ProductSubscriptionService:
+    return request.app.state.subscription_service
 
 
 @router.post("/api/v1/favorites/{product_id}")
@@ -44,6 +49,28 @@ async def list_favorites(request: Request) -> dict:
     return await service.list(user_id, limit=limit, offset=offset)
 
 
+@router.post("/api/v1/favorites/{product_id}/subscribe")
+async def subscribe_to_product(request: Request, product_id: str) -> JSONResponse:
+    product_id = _require_uuid(product_id, field="product_id")
+    user_id = user_id_from_jwt(request)
+    body = await _json_body(request)
+    notify_on = _notify_on_from_body(body)
+
+    service = get_subscription_service(request)
+    response = await service.subscribe(user_id, product_id, notify_on)
+    return JSONResponse(status_code=201, content=response)
+
+
+@router.delete("/api/v1/favorites/{product_id}/subscribe", status_code=204)
+async def unsubscribe_from_product(request: Request, product_id: str) -> Response:
+    product_id = _require_uuid(product_id, field="product_id")
+    user_id = user_id_from_jwt(request)
+
+    service = get_subscription_service(request)
+    await service.unsubscribe(user_id, product_id)
+    return Response(status_code=204)
+
+
 def _pagination_from_query(request: Request) -> tuple[int, int]:
     limit_raw = request.query_params.get("limit")
     offset_raw = request.query_params.get("offset")
@@ -60,3 +87,20 @@ def _require_uuid(value: str, *, field: str) -> str:
     if valid is None:
         raise InvalidRequest(f"{field} must be a valid UUID")
     return valid
+
+
+async def _json_body(request: Request) -> dict:
+    try:
+        body = await request.json()
+    except ValueError:
+        raise InvalidRequest("Request body must be valid JSON")
+    if not isinstance(body, dict):
+        raise InvalidRequest("Request body must be an object")
+    return body
+
+
+def _notify_on_from_body(body: dict) -> tuple[object, ...]:
+    notify_on = body.get("notify_on")
+    if not isinstance(notify_on, list):
+        return ()
+    return tuple(notify_on)
