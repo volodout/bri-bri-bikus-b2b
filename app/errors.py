@@ -91,6 +91,21 @@ class ServiceUnavailable(CatalogError):
         super().__init__(503, "SERVICE_UNAVAILABLE", message)
 
 
+class EmptyBannerEvents(CatalogError):
+    def __init__(self, message: str = "Events array must not be empty"):
+        super().__init__(400, "EMPTY_EVENTS", message)
+
+
+class InvalidBannerEventType(CatalogError):
+    def __init__(self, message: str = "Allowed event values: impression, click"):
+        super().__init__(400, "INVALID_EVENT_TYPE", message)
+
+
+class BannerNotFound(CatalogError):
+    def __init__(self, message: str = "Banner not found"):
+        super().__init__(400, "BANNER_NOT_FOUND", message)
+
+
 class OrphanCategoryHierarchy(CatalogError):
     def __init__(self, message: str = "Category hierarchy is broken"):
         super().__init__(422, "ORPHAN_NODE", message)
