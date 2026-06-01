@@ -9,6 +9,7 @@ import pytest
 from app.b2b_client import B2BClient
 from app.banners import InMemoryBannerRepository
 from app.cart import InMemoryCartRepository
+from app.collections import InMemoryCollectionRepository
 from app.favorites import InMemoryFavoriteRepository
 from app.main import create_app
 from app.subscriptions import InMemoryProductSubscriptionRepository
@@ -60,7 +61,12 @@ def banner_repository():
 
 
 @pytest.fixture
-def client(b2b_recorder, banner_repository):
+def collection_repository():
+    return InMemoryCollectionRepository()
+
+
+@pytest.fixture
+def client(b2b_recorder, banner_repository, collection_repository):
     b2b = B2BClient(
         base_url="http://b2b.test",
         service_key="test-service-key",
@@ -72,6 +78,7 @@ def client(b2b_recorder, banner_repository):
         subscription_repository=InMemoryProductSubscriptionRepository(),
         cart_repository=InMemoryCartRepository(),
         banner_repository=banner_repository,
+        collection_repository=collection_repository,
     )
     transport = httpx.ASGITransport(app=app)
     return httpx.AsyncClient(transport=transport, base_url="http://b2c.test")
