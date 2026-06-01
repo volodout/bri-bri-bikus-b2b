@@ -56,6 +56,41 @@ class InvalidNotifyOn(CatalogError):
         super().__init__(400, "INVALID_NOTIFY_ON", message)
 
 
+class MissingCartIdentity(CatalogError):
+    def __init__(self, message: str = "Pass Authorization bearer token or X-Session-Id"):
+        super().__init__(400, "MISSING_CART_IDENTITY", message)
+
+
+class InvalidQuantity(CatalogError):
+    def __init__(self, message: str = "Quantity must be at least 1"):
+        super().__init__(400, "INVALID_QUANTITY", message)
+
+
+class SkuNotFound(CatalogError):
+    def __init__(self, message: str = "SKU not found"):
+        super().__init__(404, "SKU_NOT_FOUND", message)
+
+
+class SkuNotAvailable(CatalogError):
+    def __init__(self, message: str = "SKU is not available"):
+        super().__init__(410, "SKU_NOT_AVAILABLE", message)
+
+
+class InsufficientStock(CatalogError):
+    def __init__(self, message: str = "Insufficient stock"):
+        super().__init__(422, "INSUFFICIENT_STOCK", message)
+
+
+class CartItemNotFound(CatalogError):
+    def __init__(self, message: str = "Cart item not found"):
+        super().__init__(404, "CART_ITEM_NOT_FOUND", message)
+
+
+class ServiceUnavailable(CatalogError):
+    def __init__(self, message: str = "Service temporarily unavailable"):
+        super().__init__(503, "SERVICE_UNAVAILABLE", message)
+
+
 class OrphanCategoryHierarchy(CatalogError):
     def __init__(self, message: str = "Category hierarchy is broken"):
         super().__init__(422, "ORPHAN_NODE", message)

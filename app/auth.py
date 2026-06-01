@@ -12,6 +12,18 @@ from app.query_parsing import validate_uuid
 
 def user_id_from_jwt(request: Request) -> str:
     claims = _claims_from_request(request)
+    return _buyer_user_id_from_claims(claims)
+
+
+def optional_user_id_from_jwt(request: Request) -> str | None:
+    authorization = request.headers.get("Authorization")
+    if not authorization:
+        return None
+    claims = _claims_from_request(request)
+    return _buyer_user_id_from_claims(claims)
+
+
+def _buyer_user_id_from_claims(claims: dict[str, Any]) -> str:
     role = claims.get("role")
     if role != "buyer":
         raise Forbidden()

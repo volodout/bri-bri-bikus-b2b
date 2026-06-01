@@ -83,6 +83,9 @@ class B2BClient:
     async def get_product(self, product_id: str) -> dict:
         return await self._get(f"/api/v1/products/{product_id}", ())
 
+    async def get_sku(self, sku_id: str) -> dict:
+        return await self._get(f"/api/v1/skus/{sku_id}", ())
+
     async def get_similar_products(
         self,
         product_id: str,

@@ -7,6 +7,7 @@ from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.b2b_client import B2BClient
+from app.cart import CartRepository, CartService, PostgresCartRepository
 from app.errors import (
     CatalogError,
     catalog_error_handler,
@@ -20,17 +21,19 @@ from app.subscriptions import (
     ProductSubscriptionRepository,
     ProductSubscriptionService,
 )
-from app.routes import categories, facets, favorites, products
+from app.routes import cart, categories, facets, favorites, products
 
 
 def create_app(
     b2b_client: B2BClient | None = None,
     favorite_repository: FavoriteRepository | None = None,
     subscription_repository: ProductSubscriptionRepository | None = None,
+    cart_repository: CartRepository | None = None,
 ) -> FastAPI:
     client = b2b_client or B2BClient()
     favorites_repo = favorite_repository or PostgresFavoriteRepository(settings.database_url)
     subscriptions_repo = subscription_repository or PostgresProductSubscriptionRepository(settings.database_url)
+    cart_repo = cart_repository or PostgresCartRepository(settings.database_url)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -39,6 +42,7 @@ def create_app(
         finally:
             await subscriptions_repo.aclose()
             await favorites_repo.aclose()
+            await cart_repo.aclose()
             await client.aclose()
 
     app = FastAPI(
@@ -52,6 +56,8 @@ def create_app(
     app.state.favorite_service = FavoriteService(favorites_repo, client)
     app.state.subscription_repository = subscriptions_repo
     app.state.subscription_service = ProductSubscriptionService(subscriptions_repo, client)
+    app.state.cart_repository = cart_repo
+    app.state.cart_service = CartService(cart_repo, client)
 
     app.add_exception_handler(CatalogError, catalog_error_handler)
     app.add_exception_handler(StarletteHTTPException, http_exception_handler)
@@ -61,6 +67,7 @@ def create_app(
     app.include_router(facets.router)
     app.include_router(categories.router)
     app.include_router(favorites.router)
+    app.include_router(cart.router)
     return app
 
 
