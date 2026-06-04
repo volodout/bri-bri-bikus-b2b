@@ -77,8 +77,14 @@ class B2BClient:
     async def list_products(self, query: list[tuple[str, str]]) -> dict:
         return await self._get("/api/v1/products", query)
 
+    async def list_products_by_ids(self, product_ids: list[str]) -> dict:
+        return await self._get("/api/v1/products", [("ids", ",".join(product_ids))])
+
     async def get_product(self, product_id: str) -> dict:
         return await self._get(f"/api/v1/products/{product_id}", ())
+
+    async def get_sku(self, sku_id: str) -> dict:
+        return await self._get(f"/api/v1/skus/{sku_id}", ())
 
     async def get_similar_products(
         self,

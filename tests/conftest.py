@@ -7,7 +7,12 @@ import httpx
 import pytest
 
 from app.b2b_client import B2BClient
+from app.banners import InMemoryBannerRepository
+from app.cart import InMemoryCartRepository
+from app.collections import InMemoryCollectionRepository
+from app.favorites import InMemoryFavoriteRepository
 from app.main import create_app
+from app.subscriptions import InMemoryProductSubscriptionRepository
 
 
 HandlerFn = Callable[[httpx.Request], httpx.Response]
@@ -51,12 +56,29 @@ def b2b_recorder():
 
 
 @pytest.fixture
-def client(b2b_recorder):
+def banner_repository():
+    return InMemoryBannerRepository()
+
+
+@pytest.fixture
+def collection_repository():
+    return InMemoryCollectionRepository()
+
+
+@pytest.fixture
+def client(b2b_recorder, banner_repository, collection_repository):
     b2b = B2BClient(
         base_url="http://b2b.test",
         service_key="test-service-key",
         transport=b2b_recorder.transport,
     )
-    app = create_app(b2b_client=b2b)
+    app = create_app(
+        b2b_client=b2b,
+        favorite_repository=InMemoryFavoriteRepository(),
+        subscription_repository=InMemoryProductSubscriptionRepository(),
+        cart_repository=InMemoryCartRepository(),
+        banner_repository=banner_repository,
+        collection_repository=collection_repository,
+    )
     transport = httpx.ASGITransport(app=app)
     return httpx.AsyncClient(transport=transport, base_url="http://b2c.test")
