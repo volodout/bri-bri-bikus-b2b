@@ -8,11 +8,11 @@ from app.query_parsing import (
     extract_filters,
     validate_pagination,
     validate_search,
-    validate_similar_pagination,
+    validate_similar_limit,
     validate_sort,
     validate_uuid,
 )
-from app.serializers import to_public_product
+from app.serializers import to_public_card, to_public_product
 
 router = APIRouter()
 
@@ -62,30 +62,18 @@ async def get_product(request: Request, product_id: str) -> dict:
     return to_public_product(payload)
 
 
-@router.get("/api/v1/products/{product_id}/similar")
-async def get_similar(request: Request, product_id: str) -> dict:
+@router.get("/api/v1/catalog/products/{product_id}/similar")
+async def get_similar(request: Request, product_id: str) -> list[dict]:
     validate_uuid(product_id, field="id")
 
-    category_raw = request.query_params.get("category")
-    if not category_raw:
-        raise InvalidRequest("category is required")
-    category = validate_uuid(category_raw, field="category")
-
     limit_raw = request.query_params.get("limit")
-    offset_raw = request.query_params.get("offset")
     try:
         limit = int(limit_raw) if limit_raw is not None else None
-        offset = int(offset_raw) if offset_raw is not None else None
     except ValueError:
-        raise InvalidRequest("limit and offset must be integers")
+        raise InvalidRequest("limit must be an integer")
 
-    limit, offset = validate_similar_pagination(limit, offset)
-
-    upstream_query: list[tuple[str, str]] = [
-        ("category", category),
-        ("limit", str(limit)),
-        ("offset", str(offset)),
-    ]
+    limit = validate_similar_limit(limit)
 
     client = get_b2b_client(request)
-    return await client.get_similar_products(product_id, upstream_query)
+    items = await client.get_similar_products(product_id, limit)
+    return [to_public_card(item) for item in items]

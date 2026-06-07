@@ -47,7 +47,9 @@ class B2BClient:
             await self._async_client.aclose()
             self._async_client = None
 
-    async def _get(self, path: str, params: list[tuple[str, str]] | Mapping[str, Any]) -> dict:
+    async def _request_json(
+        self, path: str, params: list[tuple[str, str]] | Mapping[str, Any]
+    ) -> Any:
         client = self._client()
         try:
             response = await client.get(path, params=params)
@@ -74,6 +76,9 @@ class B2BClient:
             raise B2BUnavailable()
         raise B2BUnavailable(f"Unexpected upstream status: {status}")
 
+    async def _get(self, path: str, params: list[tuple[str, str]] | Mapping[str, Any]) -> dict:
+        return await self._request_json(path, params)
+
     async def list_products(self, query: list[tuple[str, str]]) -> dict:
         return await self._get("/api/v1/products", query)
 
@@ -86,12 +91,13 @@ class B2BClient:
     async def get_sku(self, sku_id: str) -> dict:
         return await self._get(f"/api/v1/skus/{sku_id}", ())
 
-    async def get_similar_products(
-        self,
-        product_id: str,
-        query: list[tuple[str, str]],
-    ) -> dict:
-        return await self._get(f"/api/v1/products/{product_id}/similar", query)
+    async def get_similar_products(self, product_id: str, limit: int) -> list[dict[str, Any]]:
+        result = await self._request_json(
+            f"/api/v1/products/{product_id}/similar", [("limit", str(limit))]
+        )
+        if not isinstance(result, list):
+            raise B2BUnavailable("Upstream returned unexpected shape for similar products")
+        return result
 
     async def get_facets(self, query: list[tuple[str, str]]) -> dict:
         return await self._get("/api/v1/catalog/facets", query)
