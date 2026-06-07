@@ -47,7 +47,9 @@ class B2BClient:
             await self._async_client.aclose()
             self._async_client = None
 
-    async def _get(self, path: str, params: list[tuple[str, str]] | Mapping[str, Any]) -> dict:
+    async def _request_json(
+        self, path: str, params: list[tuple[str, str]] | Mapping[str, Any]
+    ) -> Any:
         client = self._client()
         try:
             response = await client.get(path, params=params)
@@ -74,6 +76,9 @@ class B2BClient:
             raise B2BUnavailable()
         raise B2BUnavailable(f"Unexpected upstream status: {status}")
 
+    async def _get(self, path: str, params: list[tuple[str, str]] | Mapping[str, Any]) -> dict:
+        return await self._request_json(path, params)
+
     async def list_products(self, query: list[tuple[str, str]]) -> dict:
         return await self._get("/api/v1/products", query)
 
@@ -96,8 +101,11 @@ class B2BClient:
     async def get_facets(self, query: list[tuple[str, str]]) -> dict:
         return await self._get("/api/v1/catalog/facets", query)
 
-    async def list_categories(self) -> dict:
-        return await self._get("/api/v1/categories", ())
+    async def list_categories(self) -> list[dict[str, Any]]:
+        result = await self._request_json("/api/v1/categories", ())
+        if not isinstance(result, list):
+            raise B2BUnavailable("Upstream returned unexpected shape for categories")
+        return result
 
     async def get_category(self, category_id: str, *, include_product_count: bool) -> dict:
         params: list[tuple[str, str]] = []

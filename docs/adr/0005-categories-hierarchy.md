@@ -31,11 +31,39 @@ B2C либо получает плоский список и собирает д
 
 ## Решение
 **Выбран вариант 2 (adjacency list + рекурсивный CTE).** B2B хранит
-категории таблицей с `parent_id`. Эндпоинт `GET /api/v1/categories`
-отдаёт плоский список; B2C собирает дерево в
-[`app/categories.py::assemble_category_tree`](app/categories.py) (O(N),
-проверяет orphan по словарю id → node). `GET /api/v1/breadcrumbs?...`
-проксируется в B2B, который выполняет рекурсивный CTE по `parent_id`.
+категории таблицей с `parent_id`. Эндпоинт B2B `GET /api/v1/categories`
+отдаёт плоский массив `CategoryResponse`; B2C публикует его по контракту
+`b2c.yaml`:
+
+- `GET /api/v1/catalog/categories` → плоский массив `CategoryRef[]`
+  ([`app/categories.py::to_category_refs`](app/categories.py)).
+- `GET /api/v1/catalog/categories/tree` → массив `CategoryTreeNode[]`,
+  дерево собирается из плоского списка в
+  [`app/categories.py::assemble_category_tree`](app/categories.py) (O(N),
+  проверяет orphan по словарю id → node, поднимает 422 `ORPHAN_NODE`).
+
+Ответ дерева — массив верхнего уровня, без обёртки `{items: [...]}`.
+
+### Маппинг `CategoryResponse` (B2B) → `CategoryRef` (`b2c.yaml`)
+
+| B2B | B2C |
+|---|---|
+| `name` | `name` |
+| `parent_id` | `parent_id` (nullable) |
+| `level` (int, корень=0) | `level` |
+| `path` (materialized string `electronics/phones`) | `path` (массив строк `["electronics", "phones"]`) |
+| `is_active`, `created_at` | отброшены (нет в `CategoryRef`) |
+
+`CategoryTreeNode` = `CategoryRef` + `children[]`. Маппинг — allow-list by
+construction: приватные/служебные поля B2B не утекают.
+
+### Эндпоинты вне `b2c.yaml`
+`GET /api/v1/catalog/categories/{category_id}` (детали) и
+`GET /api/v1/catalog/breadcrumbs` (хлебные крошки от корня, проксируются в
+B2B по `parent_id`) — расширения B2C, которых нет в текущем `b2c.yaml`.
+Перенесены под неймспейс `/api/v1/catalog/`. Их нужно внести в контракт
+отдельным PR в `neomarket-protocols` (см. описание PR), чтобы клиент мог на
+них полагаться.
 
 ## Критерии
 - **Скорость запроса breadcrumbs.** Вариант 1 — лучший: один индекс,
@@ -54,6 +82,8 @@ B2C либо получает плоский список и собирает д
 
 Adjacency list балансирует простоту схемы, инвариантную верификацию
 orphan и достаточную производительность для масштаба MVP. Регрессии
-проверяются тестами `test_category_tree_returns_nested_structure`
-(построение дерева из плоского списка) и `test_orphan_node_returns_422`
-(B2C ловит сломанную иерархию и не отдаёт частично-валидное дерево).
+проверяются тестами `test_category_tree_returns_nested_array`
+(построение дерева-массива из плоского списка),
+`test_flat_categories_return_category_ref_array` (плоский `CategoryRef[]` со
+спец-полями) и `test_orphan_node_returns_422` (B2C ловит сломанную иерархию
+и не отдаёт частично-валидное дерево).
