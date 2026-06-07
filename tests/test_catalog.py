@@ -7,7 +7,7 @@ CATEGORY_ID = "123e4567-e89b-12d3-a456-426614174001"
 
 
 # ---------------------------------------------------------------------------
-# Happy path: GET /api/v1/products with filters, sort, pagination
+# Happy path: GET /api/v1/catalog/products with filters, sort, pagination
 # ---------------------------------------------------------------------------
 async def test_catalog_returns_filtered_sorted_products(client, b2b_recorder):
     b2b_payload = {
@@ -43,7 +43,7 @@ async def test_catalog_returns_filtered_sorted_products(client, b2b_recorder):
 
     async with client as ac:
         response = await ac.get(
-            "/api/v1/products",
+            "/api/v1/catalog/products",
             params=[
                 ("category_id", CATEGORY_ID),
                 ("filters[brand]", "Apple"),
@@ -130,7 +130,7 @@ async def test_invalid_sort_returns_400(client, b2b_recorder):
     b2b_recorder.set_handler(handler)
 
     async with client as ac:
-        response = await ac.get("/api/v1/products", params={"sort": "totally_invalid"})
+        response = await ac.get("/api/v1/catalog/products", params={"sort": "totally_invalid"})
 
     assert response.status_code == 400
     body = response.json()
@@ -160,7 +160,7 @@ async def test_b2b_unavailable_returns_502(client, b2b_recorder, failure_mode):
 
     async with client as ac:
         response = await ac.get(
-            "/api/v1/products",
+            "/api/v1/catalog/products",
             params={"category_id": CATEGORY_ID},
         )
 
@@ -200,7 +200,7 @@ async def test_b2b_returns_invalid_json_yields_502(client, b2b_recorder):
 
     async with client as ac:
         response = await ac.get(
-            "/api/v1/products",
+            "/api/v1/catalog/products",
             params={"category_id": CATEGORY_ID},
         )
 
@@ -217,7 +217,7 @@ async def test_empty_category_returns_empty_list(client, b2b_recorder):
 
     async with client as ac:
         response = await ac.get(
-            "/api/v1/products",
+            "/api/v1/catalog/products",
             params={"category_id": CATEGORY_ID},
         )
 
@@ -249,20 +249,20 @@ async def test_unknown_route_returns_code_message_404(client, b2b_recorder):
 
 async def test_wrong_method_returns_code_message(client, b2b_recorder):
     async with client as ac:
-        response = await ac.post("/api/v1/products")
+        response = await ac.post("/api/v1/catalog/products")
     assert response.status_code == 405
     _assert_error_contract(response.json(), expected_code="METHOD_NOT_ALLOWED")
 
 
 async def test_non_integer_limit_returns_code_message_400(client, b2b_recorder):
     async with client as ac:
-        response = await ac.get("/api/v1/products", params={"limit": "abc"})
+        response = await ac.get("/api/v1/catalog/products", params={"limit": "abc"})
     assert response.status_code == 400
     _assert_error_contract(response.json(), expected_code="INVALID_REQUEST")
 
 
 async def test_non_uuid_category_id_returns_code_message_400(client, b2b_recorder):
     async with client as ac:
-        response = await ac.get("/api/v1/products", params={"category_id": "not-a-uuid"})
+        response = await ac.get("/api/v1/catalog/products", params={"category_id": "not-a-uuid"})
     assert response.status_code == 400
     _assert_error_contract(response.json(), expected_code="INVALID_REQUEST")

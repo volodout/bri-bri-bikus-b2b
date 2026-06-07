@@ -21,7 +21,7 @@ def get_b2b_client(request: Request) -> B2BClient:
     return request.app.state.b2b_client
 
 
-@router.get("/api/v1/products")
+@router.get("/api/v1/catalog/products")
 async def list_products(request: Request) -> dict:
     raw_params = list(request.query_params.multi_items())
 
@@ -36,7 +36,7 @@ async def list_products(request: Request) -> dict:
     limit, offset = validate_pagination(limit, offset)
     sort = validate_sort(request.query_params.get("sort"))
     category_id = validate_uuid(request.query_params.get("category_id"), field="category_id")
-    search = validate_search(request.query_params.get("search"))
+    search = validate_search(request.query_params.get("q"))
 
     upstream_query: list[tuple[str, str]] = [
         ("limit", str(limit)),

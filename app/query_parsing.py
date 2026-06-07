@@ -58,13 +58,17 @@ def validate_uuid(value: str | None, *, field: str) -> str | None:
     return value
 
 
+SEARCH_MIN_LENGTH = 3
+SEARCH_MAX_LENGTH = 200
+
+
 def validate_search(value: str | None) -> str | None:
     if value is None or value == "":
         return None
-    if len(value) < 3:
-        raise InvalidRequest("Search query must be at least 3 characters")
-    if len(value) > 255:
-        raise InvalidRequest("Search query must be at most 255 characters")
+    if len(value) < SEARCH_MIN_LENGTH:
+        raise InvalidRequest(f"Search query must be at least {SEARCH_MIN_LENGTH} characters")
+    if len(value) > SEARCH_MAX_LENGTH:
+        raise InvalidRequest(f"Search query must be at most {SEARCH_MAX_LENGTH} characters")
     return value
 
 
