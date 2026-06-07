@@ -102,8 +102,11 @@ class B2BClient:
     async def get_facets(self, query: list[tuple[str, str]]) -> dict:
         return await self._get("/api/v1/catalog/facets", query)
 
-    async def list_categories(self) -> dict:
-        return await self._get("/api/v1/categories", ())
+    async def list_categories(self) -> list[dict[str, Any]]:
+        result = await self._request_json("/api/v1/categories", ())
+        if not isinstance(result, list):
+            raise B2BUnavailable("Upstream returned unexpected shape for categories")
+        return result
 
     async def get_category(self, category_id: str, *, include_product_count: bool) -> dict:
         params: list[tuple[str, str]] = []

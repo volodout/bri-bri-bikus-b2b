@@ -54,7 +54,7 @@ async def list_products(request: Request) -> dict:
     return await client.list_products(upstream_query)
 
 
-@router.get("/api/v1/products/{product_id}")
+@router.get("/api/v1/catalog/products/{product_id}")
 async def get_product(request: Request, product_id: str) -> dict:
     validate_uuid(product_id, field="id")
     client = get_b2b_client(request)

@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Request
 
 from app.b2b_client import B2BClient
-from app.categories import assemble_category_tree
+from app.categories import assemble_category_tree, to_category_refs
 from app.errors import InvalidRequest
 from app.query_parsing import validate_uuid
 
@@ -14,16 +14,21 @@ def get_b2b_client(request: Request) -> B2BClient:
     return request.app.state.b2b_client
 
 
-@router.get("/api/v1/categories")
-async def list_categories(request: Request) -> dict:
+@router.get("/api/v1/catalog/categories")
+async def list_categories(request: Request) -> list[dict]:
     client = get_b2b_client(request)
-    payload = await client.list_categories()
-    items = payload.get("items") or []
-    tree = assemble_category_tree(items)
-    return {"items": tree}
+    items = await client.list_categories()
+    return to_category_refs(items)
 
 
-@router.get("/api/v1/categories/{category_id}")
+@router.get("/api/v1/catalog/categories/tree")
+async def category_tree(request: Request) -> list[dict]:
+    client = get_b2b_client(request)
+    items = await client.list_categories()
+    return assemble_category_tree(items)
+
+
+@router.get("/api/v1/catalog/categories/{category_id}")
 async def get_category(request: Request, category_id: str) -> dict:
     validate_uuid(category_id, field="id")
     include_product_count = request.query_params.get("include_product_count") == "true"
@@ -34,7 +39,7 @@ async def get_category(request: Request, category_id: str) -> dict:
     )
 
 
-@router.get("/api/v1/breadcrumbs")
+@router.get("/api/v1/catalog/breadcrumbs")
 async def get_breadcrumbs(request: Request) -> dict:
     category_id = request.query_params.get("category_id")
     product_id = request.query_params.get("product_id")
