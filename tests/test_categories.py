@@ -11,9 +11,31 @@ CLOTHES = "123e4567-e89b-12d3-a456-426614174010"
 PRODUCT_ID = "770e8400-e29b-41d4-a716-446655440002"
 GHOST_PARENT = "999e4567-e89b-12d3-a456-426614174999"
 
+CATALOG_CATEGORIES = "/api/v1/catalog/categories"
+CATALOG_TREE = "/api/v1/catalog/categories/tree"
+CATALOG_BREADCRUMBS = "/api/v1/catalog/breadcrumbs"
 
-def _flat(id: str, name: str, parent_id: str | None) -> dict:
-    return {"id": id, "name": name, "parent_id": parent_id}
+
+def _cat(id: str, name: str, parent_id: str | None, level: int, path: str) -> dict:
+    return {
+        "id": id,
+        "name": name,
+        "parent_id": parent_id,
+        "level": level,
+        "path": path,
+        "is_active": True,
+        "created_at": "2026-01-01T00:00:00Z",
+    }
+
+
+def _catalog_fixture() -> list[dict]:
+    return [
+        _cat(ELECTRONICS, "Электроника", None, 0, "electronics"),
+        _cat(SMARTPHONES, "Смартфоны", ELECTRONICS, 1, "electronics/smartphones"),
+        _cat(ANDROID, "Android", SMARTPHONES, 2, "electronics/smartphones/android"),
+        _cat(IPHONE, "iPhone", SMARTPHONES, 2, "electronics/smartphones/iphone"),
+        _cat(CLOTHES, "Одежда", None, 0, "clothes"),
+    ]
 
 
 def _assert_error_contract(body: dict, *, expected_code: str) -> None:
@@ -24,102 +46,115 @@ def _assert_error_contract(body: dict, *, expected_code: str) -> None:
 
 
 # ===========================================================================
-# Category tree (GET /api/v1/categories)
+# Flat list (GET /api/v1/catalog/categories) -> CategoryRef[]
 # ===========================================================================
-
-
-# ---------------------------------------------------------------------------
-# Happy path: B2C assembles a nested tree from B2B's flat list.
-# ---------------------------------------------------------------------------
-async def test_category_tree_returns_nested_structure(client, b2b_recorder):
-    flat = [
-        _flat(ELECTRONICS, "Электроника", None),
-        _flat(SMARTPHONES, "Смартфоны", ELECTRONICS),
-        _flat(ANDROID, "Android", SMARTPHONES),
-        _flat(IPHONE, "iPhone", SMARTPHONES),
-        _flat(CLOTHES, "Одежда", None),
-    ]
-
+async def test_flat_categories_return_category_ref_array(client, b2b_recorder):
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/api/v1/categories"
-        return httpx.Response(200, json={"items": flat})
+        return httpx.Response(200, json=_catalog_fixture())
 
     b2b_recorder.set_handler(handler)
 
     async with client as ac:
-        response = await ac.get("/api/v1/categories")
+        response = await ac.get(CATALOG_CATEGORIES)
 
     assert response.status_code == 200
     body = response.json()
-    items = body["items"]
+    assert isinstance(body, list)
+    assert len(body) == 5
 
-    assert len(items) == 2
-    roots_by_id = {root["id"]: root for root in items}
+    smartphones = next(c for c in body if c["id"] == SMARTPHONES)
+    assert smartphones["name"] == "Смартфоны"
+    assert smartphones["parent_id"] == ELECTRONICS
+    assert smartphones["level"] == 1
+    assert smartphones["path"] == ["electronics", "smartphones"]
+    assert "is_active" not in smartphones
+    assert "created_at" not in smartphones
+    assert "children" not in smartphones
+
+
+# ===========================================================================
+# Tree (GET /api/v1/catalog/categories/tree) -> CategoryTreeNode[]
+# ===========================================================================
+async def test_category_tree_returns_nested_array(client, b2b_recorder):
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/api/v1/categories"
+        return httpx.Response(200, json=_catalog_fixture())
+
+    b2b_recorder.set_handler(handler)
+
+    async with client as ac:
+        response = await ac.get(CATALOG_TREE)
+
+    assert response.status_code == 200
+    roots = response.json()
+    assert isinstance(roots, list)
+    assert len(roots) == 2
+
+    roots_by_id = {root["id"]: root for root in roots}
     assert roots_by_id.keys() == {ELECTRONICS, CLOTHES}
 
     electronics = roots_by_id[ELECTRONICS]
     assert electronics["parent_id"] is None
+    assert electronics["level"] == 0
+    assert electronics["path"] == ["electronics"]
     assert len(electronics["children"]) == 1
 
     smartphones = electronics["children"][0]
     assert smartphones["id"] == SMARTPHONES
-    assert smartphones["parent_id"] == ELECTRONICS
+    assert smartphones["level"] == 1
+    assert smartphones["path"] == ["electronics", "smartphones"]
     assert len(smartphones["children"]) == 2
-    child_ids = {c["id"] for c in smartphones["children"]}
-    assert child_ids == {ANDROID, IPHONE}
+    assert {c["id"] for c in smartphones["children"]} == {ANDROID, IPHONE}
     for leaf in smartphones["children"]:
         assert leaf["children"] == []
+        assert leaf["level"] == 2
 
-    clothes = roots_by_id[CLOTHES]
-    assert clothes["children"] == []
+    assert roots_by_id[CLOTHES]["children"] == []
 
 
 # ---------------------------------------------------------------------------
-# Edge case: a node points at a parent id that does not exist in the flat list.
-# B2C refuses to render a half-broken tree -> 422 with ORPHAN_NODE.
+# Edge case: a node points at a missing parent -> 422 ORPHAN_NODE.
 # ---------------------------------------------------------------------------
 async def test_orphan_node_returns_422(client, b2b_recorder):
     flat = [
-        _flat(ELECTRONICS, "Электроника", None),
-        _flat(SMARTPHONES, "Смартфоны", GHOST_PARENT),
+        _cat(ELECTRONICS, "Электроника", None, 0, "electronics"),
+        _cat(SMARTPHONES, "Смартфоны", GHOST_PARENT, 1, "ghost/smartphones"),
     ]
 
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json={"items": flat})
+        return httpx.Response(200, json=flat)
 
     b2b_recorder.set_handler(handler)
 
     async with client as ac:
-        response = await ac.get("/api/v1/categories")
+        response = await ac.get(CATALOG_TREE)
 
     assert response.status_code == 422
     _assert_error_contract(response.json(), expected_code="ORPHAN_NODE")
 
 
 # ---------------------------------------------------------------------------
-# Edge case: B2B returns nothing -> 200 with empty items.
+# Edge case: B2B returns nothing -> 200 with an empty array on both endpoints.
 # ---------------------------------------------------------------------------
-async def test_empty_category_tree_returns_200_empty_list(client, b2b_recorder):
+@pytest.mark.parametrize("path", [CATALOG_CATEGORIES, CATALOG_TREE])
+async def test_empty_categories_return_200_empty_array(client, b2b_recorder, path):
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json={"items": []})
+        return httpx.Response(200, json=[])
 
     b2b_recorder.set_handler(handler)
 
     async with client as ac:
-        response = await ac.get("/api/v1/categories")
+        response = await ac.get(path)
 
     assert response.status_code == 200
-    assert response.json() == {"items": []}
+    assert response.json() == []
 
 
 # ===========================================================================
-# Category details (GET /api/v1/categories/{id})
+# Category details (GET /api/v1/catalog/categories/{id}) — B2C extension,
+# proxied to B2B.
 # ===========================================================================
-
-
-# ---------------------------------------------------------------------------
-# Happy path: B2C proxies through to B2B; include_product_count forwards.
-# ---------------------------------------------------------------------------
 async def test_category_details_proxy_with_product_count(client, b2b_recorder):
     b2b_payload = {
         "id": SMARTPHONES,
@@ -140,7 +175,7 @@ async def test_category_details_proxy_with_product_count(client, b2b_recorder):
 
     async with client as ac:
         response = await ac.get(
-            f"/api/v1/categories/{SMARTPHONES}",
+            f"{CATALOG_CATEGORIES}/{SMARTPHONES}",
             params={"include_product_count": "true"},
         )
 
@@ -150,28 +185,19 @@ async def test_category_details_proxy_with_product_count(client, b2b_recorder):
     assert body["product_count"] == 1542
 
 
-# ---------------------------------------------------------------------------
-# Edge case: nonexistent category id -> upstream 404 -> public 404.
-# ---------------------------------------------------------------------------
 async def test_unknown_category_returns_404(client, b2b_recorder):
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(
-            404,
-            json={"code": "NOT_FOUND", "message": "Category not found"},
-        )
+        return httpx.Response(404, json={"code": "NOT_FOUND", "message": "Category not found"})
 
     b2b_recorder.set_handler(handler)
 
     async with client as ac:
-        response = await ac.get(f"/api/v1/categories/{SMARTPHONES}")
+        response = await ac.get(f"{CATALOG_CATEGORIES}/{SMARTPHONES}")
 
     assert response.status_code == 404
     _assert_error_contract(response.json(), expected_code="NOT_FOUND")
 
 
-# ---------------------------------------------------------------------------
-# Edge case: bad UUID in path -> 400, B2B never called.
-# ---------------------------------------------------------------------------
 async def test_category_details_invalid_uuid_returns_400(client, b2b_recorder):
     def handler(request: httpx.Request) -> httpx.Response:  # pragma: no cover
         raise AssertionError("B2B must not be called for invalid uuid")
@@ -179,39 +205,20 @@ async def test_category_details_invalid_uuid_returns_400(client, b2b_recorder):
     b2b_recorder.set_handler(handler)
 
     async with client as ac:
-        response = await ac.get("/api/v1/categories/not-a-uuid")
+        response = await ac.get(f"{CATALOG_CATEGORIES}/not-a-uuid")
 
     assert response.status_code == 400
     _assert_error_contract(response.json(), expected_code="INVALID_REQUEST")
 
 
 # ===========================================================================
-# Breadcrumbs (GET /api/v1/breadcrumbs)
+# Breadcrumbs (GET /api/v1/catalog/breadcrumbs) — B2C extension, proxied.
 # ===========================================================================
-
-
-# ---------------------------------------------------------------------------
-# Happy path: chain from root to leaf, current node marked is_current=true.
-# ---------------------------------------------------------------------------
 async def test_breadcrumbs_return_path_from_root(client, b2b_recorder):
     b2b_payload = {
         "data": [
-            {
-                "id": ELECTRONICS,
-                "slug": "electronics",
-                "name": "Электроника",
-                "url": "/catalog/electronics",
-                "level": 0,
-                "is_current": False,
-            },
-            {
-                "id": SMARTPHONES,
-                "slug": "smartphones",
-                "name": "Смартфоны",
-                "url": "/catalog/electronics/smartphones",
-                "level": 1,
-                "is_current": True,
-            },
+            {"id": ELECTRONICS, "name": "Электроника", "level": 0, "is_current": False},
+            {"id": SMARTPHONES, "name": "Смартфоны", "level": 1, "is_current": True},
         ],
         "meta": {"resolved_via": "category_id", "category_id": SMARTPHONES},
     }
@@ -225,18 +232,14 @@ async def test_breadcrumbs_return_path_from_root(client, b2b_recorder):
     b2b_recorder.set_handler(handler)
 
     async with client as ac:
-        response = await ac.get("/api/v1/breadcrumbs", params={"category_id": SMARTPHONES})
+        response = await ac.get(CATALOG_BREADCRUMBS, params={"category_id": SMARTPHONES})
 
     assert response.status_code == 200
     body = response.json()
-    assert body == b2b_payload
     assert body["data"][0]["level"] == 0
     assert body["data"][-1]["is_current"] is True
 
 
-# ---------------------------------------------------------------------------
-# Happy path: product_id resolves to a category chain.
-# ---------------------------------------------------------------------------
 async def test_breadcrumbs_resolves_product_id(client, b2b_recorder):
     b2b_payload = {
         "data": [
@@ -254,15 +257,12 @@ async def test_breadcrumbs_resolves_product_id(client, b2b_recorder):
     b2b_recorder.set_handler(handler)
 
     async with client as ac:
-        response = await ac.get("/api/v1/breadcrumbs", params={"product_id": PRODUCT_ID})
+        response = await ac.get(CATALOG_BREADCRUMBS, params={"product_id": PRODUCT_ID})
 
     assert response.status_code == 200
     assert response.json()["meta"]["resolved_via"] == "product_id"
 
 
-# ---------------------------------------------------------------------------
-# Edge case: both params at once -> 400 INVALID_REQUEST, B2B never called.
-# ---------------------------------------------------------------------------
 async def test_ambiguous_params_returns_400(client, b2b_recorder):
     def handler(request: httpx.Request) -> httpx.Response:  # pragma: no cover
         raise AssertionError("B2B must not be called when both params are present")
@@ -271,7 +271,7 @@ async def test_ambiguous_params_returns_400(client, b2b_recorder):
 
     async with client as ac:
         response = await ac.get(
-            "/api/v1/breadcrumbs",
+            CATALOG_BREADCRUMBS,
             params={"category_id": SMARTPHONES, "product_id": PRODUCT_ID},
         )
 
@@ -280,9 +280,6 @@ async def test_ambiguous_params_returns_400(client, b2b_recorder):
     assert "only one" in response.json()["message"].lower()
 
 
-# ---------------------------------------------------------------------------
-# Edge case: no params -> 400 INVALID_REQUEST, B2B never called.
-# ---------------------------------------------------------------------------
 async def test_breadcrumbs_missing_params_returns_400(client, b2b_recorder):
     def handler(request: httpx.Request) -> httpx.Response:  # pragma: no cover
         raise AssertionError("B2B must not be called without any param")
@@ -290,15 +287,12 @@ async def test_breadcrumbs_missing_params_returns_400(client, b2b_recorder):
     b2b_recorder.set_handler(handler)
 
     async with client as ac:
-        response = await ac.get("/api/v1/breadcrumbs")
+        response = await ac.get(CATALOG_BREADCRUMBS)
 
     assert response.status_code == 400
     _assert_error_contract(response.json(), expected_code="INVALID_REQUEST")
 
 
-# ---------------------------------------------------------------------------
-# Edge case: invalid UUIDs are rejected locally, B2B never called.
-# ---------------------------------------------------------------------------
 @pytest.mark.parametrize(
     ("param_name", "value"),
     [
@@ -306,35 +300,27 @@ async def test_breadcrumbs_missing_params_returns_400(client, b2b_recorder):
         ("product_id", "12345"),
     ],
 )
-async def test_breadcrumbs_invalid_uuid_returns_400(
-    client, b2b_recorder, param_name, value,
-):
+async def test_breadcrumbs_invalid_uuid_returns_400(client, b2b_recorder, param_name, value):
     def handler(request: httpx.Request) -> httpx.Response:  # pragma: no cover
         raise AssertionError("B2B must not be called for invalid uuid")
 
     b2b_recorder.set_handler(handler)
 
     async with client as ac:
-        response = await ac.get("/api/v1/breadcrumbs", params={param_name: value})
+        response = await ac.get(CATALOG_BREADCRUMBS, params={param_name: value})
 
     assert response.status_code == 400
     _assert_error_contract(response.json(), expected_code="INVALID_REQUEST")
 
 
-# ---------------------------------------------------------------------------
-# Edge case: upstream 404 (category exists but resolution failed) -> 404.
-# ---------------------------------------------------------------------------
 async def test_breadcrumbs_unknown_category_returns_404(client, b2b_recorder):
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(
-            404,
-            json={"code": "NOT_FOUND", "message": "Category not found"},
-        )
+        return httpx.Response(404, json={"code": "NOT_FOUND", "message": "Category not found"})
 
     b2b_recorder.set_handler(handler)
 
     async with client as ac:
-        response = await ac.get("/api/v1/breadcrumbs", params={"category_id": SMARTPHONES})
+        response = await ac.get(CATALOG_BREADCRUMBS, params={"category_id": SMARTPHONES})
 
     assert response.status_code == 404
     _assert_error_contract(response.json(), expected_code="NOT_FOUND")
