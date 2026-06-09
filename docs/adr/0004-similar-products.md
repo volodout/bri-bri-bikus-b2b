@@ -5,8 +5,14 @@
 ## Контекст
 Блок «Похожие товары» на карточке нужен, чтобы покупатель остался на
 платформе при сомнении в выборе. Алгоритм выборки живёт в B2B (где БД
-товаров); B2C только проксирует параметры. Этот ADR фиксирует
-ожидание B2C к контракту B2B по тому, как формируется выборка.
+товаров); B2C только проксирует запрос. Публичный контракт `b2c.yaml`:
+`GET /api/v1/catalog/products/{product_id}/similar?limit=` (limit 1..50,
+default 10) → плоский массив `CatalogProductCard[]`. Внутренний контракт
+`b2b.yaml` (`GET /api/v1/public/products/{product_id}/similar?limit=`) тоже
+принимает только `limit` и возвращает массив `ProductPublicShortResponse[]` —
+категорию B2B выводит из самого товара, исключение текущего товара и fallback
+на родителя выполняет тоже B2B. Этот ADR фиксирует выбор алгоритма выборки и
+маппинг короткого ответа B2B в публичную карточку.
 
 ## Рассмотренные подходы
 
@@ -26,10 +32,29 @@
 
 ## Решение
 **Выбран вариант 1 (`ORDER BY random()` + fallback на родительскую
-категорию).** B2C проксирует `?category=...&limit=...&offset=...` в
-`GET /api/v1/products/{id}/similar`. Лимит ограничен 1..20 на стороне B2C
-([`app/query_parsing.py::validate_similar_pagination`](app/query_parsing.py)),
-выборка и fallback выполняются на стороне B2B.
+категорию).** B2C валидирует `limit` (1..50, default 10,
+[`app/query_parsing.py::validate_similar_limit`](app/query_parsing.py)) и
+проксирует только его; категорию, исключение текущего товара и fallback
+выполняет B2B. Короткий ответ B2B (`ProductPublicShortResponse`)
+транслируется в `CatalogProductCard` через
+[`app/serializers.py::to_public_card`](app/serializers.py) (allow-list by
+construction).
+
+## Маппинг `ProductPublicShortResponse` → `CatalogProductCard` (`b2c.yaml`)
+
+| B2B | B2C |
+|---|---|
+| `title` | `name` |
+| `min_price` | `min_price` (копейки) |
+| `cover_image` | `images` = `[{url, ordering: 0}]` (или `[]`) |
+| `slug` | `slug` |
+| (вычисляется) | `has_stock` = `true` — витрина B2B отдаёт только товары с `active_quantity > 0`, отдельного поля у короткого ответа нет |
+| `status`, `category_id`, `created_at` | отброшены (нет в публичной карточке) |
+
+Ответ — плоский массив `CatalogProductCard[]`, без обёртки
+`{items, total_count, ...}`. Путь приведён к спецификации
+`/api/v1/catalog/products/{product_id}/similar`; вызов B2B остаётся внутренним
+(`/api/v1/products/{id}/similar`) — граница B2B-контракта, вне скоупа US-CAT-04.
 
 ## Критерии
 - **Сложность реализации на MVP.** Вариант 1 — один SQL-запрос плюс
@@ -46,9 +71,10 @@
   но скучно: всегда одни и те же 8 товаров. Вариант 3 — стабильно
   пока джоб не обновился. При росте каталога имеет смысл подняться
   до варианта 2 или 3, не меняя контракт B2C (тот же
-  `?category=...`).
+  `CatalogProductCard[]`).
 
 Регрессии проверяются тестами
-`test_similar_returns_up_to_8_from_same_category` (текущий товар не в
-выборке) и `test_parent_category_fallback_is_proxied` (B2C передаёт
-параметры, не пытается сам строить выборку).
+`test_similar_returns_card_array_with_spec_fields` (плоский массив карточек со
+спец-полями, текущий товар исключён) и
+`test_parent_category_fallback_is_proxied` (B2C шлёт только `limit`, не
+строит выборку сам).

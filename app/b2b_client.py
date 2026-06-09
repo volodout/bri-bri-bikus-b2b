@@ -91,12 +91,13 @@ class B2BClient:
     async def get_sku(self, sku_id: str) -> dict:
         return await self._get(f"/api/v1/skus/{sku_id}", ())
 
-    async def get_similar_products(
-        self,
-        product_id: str,
-        query: list[tuple[str, str]],
-    ) -> dict:
-        return await self._get(f"/api/v1/products/{product_id}/similar", query)
+    async def get_similar_products(self, product_id: str, limit: int) -> list[dict[str, Any]]:
+        result = await self._request_json(
+            f"/api/v1/products/{product_id}/similar", [("limit", str(limit))]
+        )
+        if not isinstance(result, list):
+            raise B2BUnavailable("Upstream returned unexpected shape for similar products")
+        return result
 
     async def get_facets(self, query: list[tuple[str, str]]) -> dict:
         return await self._get("/api/v1/catalog/facets", query)
