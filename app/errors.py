@@ -141,6 +141,21 @@ class OrdersB2BUnavailable(CatalogError):
         super().__init__(503, "B2B_UNAVAILABLE", message)
 
 
+class OrderNotFound(CatalogError):
+    def __init__(self, message: str = "Заказ не найден"):
+        super().__init__(404, "ORDER_NOT_FOUND", message)
+
+
+class CancelNotAllowed(CatalogError):
+    def __init__(self, current_status: str):
+        super().__init__(
+            409,
+            "CANCEL_NOT_ALLOWED",
+            f"Отмена невозможна: заказ в статусе {current_status}",
+            extra={"current_status": current_status},
+        )
+
+
 def _payload(code: str, message: str) -> dict:
     return {"code": code, "message": message}
 

@@ -136,6 +136,20 @@ class B2BClient:
             raise InvalidRequest(_extract_message(_safe_json(response), "Invalid reserve request"))
         raise B2BUnavailable(f"Unexpected upstream status: {status}")
 
+    async def unreserve(self, order_id: str, items: list[Mapping[str, Any]]) -> None:
+        client = self._client()
+        body = {"order_id": order_id, "items": [dict(item) for item in items]}
+        try:
+            response = await client.post("/api/v1/inventory/unreserve", json=body)
+        except (httpx.ConnectError, httpx.ReadError, httpx.TimeoutException, httpx.NetworkError):
+            raise B2BUnavailable()
+        except httpx.HTTPError as exc:
+            raise B2BUnavailable(f"Upstream transport error: {exc.__class__.__name__}")
+
+        if 200 <= response.status_code < 300:
+            return None
+        raise B2BUnavailable(f"Unreserve failed with status {response.status_code}")
+
     async def get_facets(self, query: list[tuple[str, str]]) -> dict:
         return await self._get("/api/v1/catalog/facets", query)
 
