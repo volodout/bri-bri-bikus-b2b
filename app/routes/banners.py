@@ -12,10 +12,10 @@ def get_banner_service(request: Request) -> BannerService:
     return request.app.state.banner_service
 
 
-@router.get("/api/v1/home/banners")
-async def get_home_banners(request: Request) -> dict:
+@router.get("/api/v1/catalog/banners")
+async def get_catalog_banners(request: Request) -> dict:
     service = get_banner_service(request)
-    return await service.list_home_banners()
+    return await service.list_catalog_banners()
 
 
 @router.post("/api/v1/banner-events", status_code=204)

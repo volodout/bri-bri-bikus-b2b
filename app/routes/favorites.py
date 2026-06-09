@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Request, Response
-from fastapi.responses import JSONResponse
 
 from app.auth import user_id_from_jwt
 from app.errors import InvalidRequest
@@ -20,14 +19,14 @@ def get_subscription_service(request: Request) -> ProductSubscriptionService:
     return request.app.state.subscription_service
 
 
-@router.post("/api/v1/favorites/{product_id}")
-async def add_to_favorites(request: Request, product_id: str) -> JSONResponse:
+@router.put("/api/v1/favorites/{product_id}", status_code=204)
+async def add_to_favorites(request: Request, product_id: str) -> Response:
     product_id = _require_uuid(product_id, field="product_id")
     user_id = user_id_from_jwt(request)
 
     service = get_favorite_service(request)
-    body, status_code = await service.add(user_id, product_id)
-    return JSONResponse(status_code=status_code, content=body)
+    await service.add(user_id, product_id)
+    return Response(status_code=204)
 
 
 @router.delete("/api/v1/favorites/{product_id}", status_code=204)
@@ -49,16 +48,16 @@ async def list_favorites(request: Request) -> dict:
     return await service.list(user_id, limit=limit, offset=offset)
 
 
-@router.post("/api/v1/favorites/{product_id}/subscribe")
-async def subscribe_to_product(request: Request, product_id: str) -> JSONResponse:
+@router.post("/api/v1/favorites/{product_id}/subscribe", status_code=204)
+async def subscribe_to_product(request: Request, product_id: str) -> Response:
     product_id = _require_uuid(product_id, field="product_id")
     user_id = user_id_from_jwt(request)
     body = await _json_body(request)
-    notify_on = _notify_on_from_body(body)
+    events = _events_from_body(body)
 
     service = get_subscription_service(request)
-    response = await service.subscribe(user_id, product_id, notify_on)
-    return JSONResponse(status_code=201, content=response)
+    await service.subscribe(user_id, product_id, events)
+    return Response(status_code=204)
 
 
 @router.delete("/api/v1/favorites/{product_id}/subscribe", status_code=204)
@@ -99,8 +98,8 @@ async def _json_body(request: Request) -> dict:
     return body
 
 
-def _notify_on_from_body(body: dict) -> tuple[object, ...]:
-    notify_on = body.get("notify_on")
-    if not isinstance(notify_on, list):
+def _events_from_body(body: dict) -> tuple[object, ...]:
+    events = body.get("events")
+    if not isinstance(events, list):
         return ()
-    return tuple(notify_on)
+    return tuple(events)

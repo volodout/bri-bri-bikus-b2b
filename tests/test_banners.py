@@ -14,7 +14,7 @@ def banner(
     banner_id: str,
     *,
     priority: int,
-    placement: str = "home",
+    placement: str = "catalog",
     is_active: bool = True,
     start_at: datetime | None = None,
     end_at: datetime | None = None,
@@ -50,7 +50,7 @@ async def test_active_banners_returned_sorted_by_priority(client, banner_reposit
     banner_repository.add(banner("10e66790-7425-40de-944b-e07fc1f90ae70", priority=1, placement="checkout"))
 
     async with client as ac:
-        response = await ac.get("/api/v1/home/banners")
+        response = await ac.get("/api/v1/catalog/banners")
 
     assert response.status_code == 200
     body = response.json()
@@ -66,7 +66,7 @@ async def test_no_active_banners_returns_200_empty(client, banner_repository):
     banner_repository.add(banner(SECOND_BANNER_ID, priority=2, start_at=now + timedelta(days=1)))
 
     async with client as ac:
-        response = await ac.get("/api/v1/home/banners")
+        response = await ac.get("/api/v1/catalog/banners")
 
     assert response.status_code == 200
     assert response.json() == {"items": [], "total_count": 0}

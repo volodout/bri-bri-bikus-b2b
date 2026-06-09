@@ -55,7 +55,7 @@ def product(product_id: str = PRODUCT_ID, title: str = "iPhone 15 Pro Max") -> d
     }
 
 
-async def test_add_to_favorites_returns_201(client, b2b_recorder):
+async def test_add_to_favorites_returns_204(client, b2b_recorder):
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == f"/api/v1/products/{PRODUCT_ID}"
         assert request.headers.get("X-Service-Key") == "test-service-key"
@@ -64,13 +64,10 @@ async def test_add_to_favorites_returns_201(client, b2b_recorder):
     b2b_recorder.set_handler(handler)
 
     async with client as ac:
-        response = await ac.post(f"/api/v1/favorites/{PRODUCT_ID}", headers=auth_headers())
+        response = await ac.put(f"/api/v1/favorites/{PRODUCT_ID}", headers=auth_headers())
 
-    assert response.status_code == 201
-    body = response.json()
-    assert body["product_id"] == PRODUCT_ID
-    assert body["user_id"] == USER_ID
-    assert body["added_at"].endswith("Z")
+    assert response.status_code == 204
+    assert response.content == b""
 
 
 async def test_get_favorites_enriched_from_b2b(client, b2b_recorder):
@@ -85,17 +82,17 @@ async def test_get_favorites_enriched_from_b2b(client, b2b_recorder):
     b2b_recorder.set_handler(handler)
 
     async with client as ac:
-        await ac.post(f"/api/v1/favorites/{PRODUCT_ID}", headers=auth_headers())
+        await ac.put(f"/api/v1/favorites/{PRODUCT_ID}", headers=auth_headers())
         response = await ac.get("/api/v1/favorites", headers=auth_headers())
 
     assert response.status_code == 200
     body = response.json()
-    assert body["total"] == 1
-    assert body["items"][0]["product"]["id"] == PRODUCT_ID
-    assert body["items"][0]["product"]["skus"][0]["price"] == 12999000
+    assert body["total_count"] == 1
+    assert body["items"][0]["id"] == PRODUCT_ID
+    assert body["items"][0]["skus"][0]["price"] == 12999000
 
 
-async def test_repeat_add_returns_200_not_duplicate(client, b2b_recorder):
+async def test_repeat_add_returns_204_not_duplicate(client, b2b_recorder):
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == f"/api/v1/products/{PRODUCT_ID}":
             return httpx.Response(200, json=product())
@@ -104,15 +101,15 @@ async def test_repeat_add_returns_200_not_duplicate(client, b2b_recorder):
     b2b_recorder.set_handler(handler)
 
     async with client as ac:
-        first = await ac.post(f"/api/v1/favorites/{PRODUCT_ID}", headers=auth_headers())
-        second = await ac.post(f"/api/v1/favorites/{PRODUCT_ID}", headers=auth_headers())
+        first = await ac.put(f"/api/v1/favorites/{PRODUCT_ID}", headers=auth_headers())
+        second = await ac.put(f"/api/v1/favorites/{PRODUCT_ID}", headers=auth_headers())
         listed = await ac.get("/api/v1/favorites", headers=auth_headers())
 
-    assert first.status_code == 201
-    assert second.status_code == 200
+    assert first.status_code == 204
+    assert second.status_code == 204
     body = listed.json()
-    assert body["total"] == 1
-    assert [item["product"]["id"] for item in body["items"]] == [PRODUCT_ID]
+    assert body["total_count"] == 1
+    assert [item["id"] for item in body["items"]] == [PRODUCT_ID]
 
 
 async def test_blocked_product_excluded_from_list(client, b2b_recorder):
@@ -132,14 +129,14 @@ async def test_blocked_product_excluded_from_list(client, b2b_recorder):
     b2b_recorder.set_handler(handler)
 
     async with client as ac:
-        await ac.post(f"/api/v1/favorites/{PRODUCT_ID}", headers=auth_headers())
-        await ac.post(f"/api/v1/favorites/{BLOCKED_PRODUCT_ID}", headers=auth_headers())
+        await ac.put(f"/api/v1/favorites/{PRODUCT_ID}", headers=auth_headers())
+        await ac.put(f"/api/v1/favorites/{BLOCKED_PRODUCT_ID}", headers=auth_headers())
         response = await ac.get("/api/v1/favorites", headers=auth_headers())
 
     assert response.status_code == 200
     body = response.json()
-    assert body["total"] == 1
-    assert [item["product"]["id"] for item in body["items"]] == [PRODUCT_ID]
+    assert body["total_count"] == 1
+    assert [item["id"] for item in body["items"]] == [PRODUCT_ID]
 
 
 async def test_user_id_from_query_is_ignored(client, b2b_recorder):
@@ -151,7 +148,7 @@ async def test_user_id_from_query_is_ignored(client, b2b_recorder):
     b2b_recorder.set_handler(handler)
 
     async with client as ac:
-        await ac.post(f"/api/v1/favorites/{PRODUCT_ID}", headers=auth_headers())
+        await ac.put(f"/api/v1/favorites/{PRODUCT_ID}", headers=auth_headers())
         own_response = await ac.get(
             "/api/v1/favorites",
             params={"user_id": OTHER_USER_ID},
@@ -164,12 +161,13 @@ async def test_user_id_from_query_is_ignored(client, b2b_recorder):
         )
 
     assert own_response.status_code == 200
-    assert own_response.json()["total"] == 1
+    assert own_response.json()["total_count"] == 1
     assert other_response.status_code == 200
-    assert other_response.json() == {"items": [], "total": 0}
+    assert other_response.json()["total_count"] == 0
+    assert other_response.json()["items"] == []
 
 
-@pytest.mark.parametrize("method", ["post", "get"])
+@pytest.mark.parametrize("method", ["put", "get"])
 async def test_b2b_unavailable_returns_503_for_favorites(client, b2b_recorder, method):
     def unavailable(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("upstream unreachable", request=request)
@@ -178,12 +176,12 @@ async def test_b2b_unavailable_returns_503_for_favorites(client, b2b_recorder, m
         return httpx.Response(200, json=product())
 
     async with client as ac:
-        if method == "post":
+        if method == "put":
             b2b_recorder.set_handler(unavailable)
-            response = await ac.post(f"/api/v1/favorites/{PRODUCT_ID}", headers=auth_headers())
+            response = await ac.put(f"/api/v1/favorites/{PRODUCT_ID}", headers=auth_headers())
         else:
             b2b_recorder.set_handler(available)
-            await ac.post(f"/api/v1/favorites/{PRODUCT_ID}", headers=auth_headers())
+            await ac.put(f"/api/v1/favorites/{PRODUCT_ID}", headers=auth_headers())
             b2b_recorder.set_handler(unavailable)
             response = await ac.get("/api/v1/favorites", headers=auth_headers())
 
@@ -191,7 +189,7 @@ async def test_b2b_unavailable_returns_503_for_favorites(client, b2b_recorder, m
     assert response.json()["code"] == "B2B_UNAVAILABLE"
 
 
-async def test_subscribe_returns_201_with_notify_on(client, b2b_recorder):
+async def test_subscribe_returns_204_with_events(client, b2b_recorder):
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == f"/api/v1/products/{PRODUCT_ID}"
         return httpx.Response(200, json=product())
@@ -201,16 +199,12 @@ async def test_subscribe_returns_201_with_notify_on(client, b2b_recorder):
     async with client as ac:
         response = await ac.post(
             f"/api/v1/favorites/{PRODUCT_ID}/subscribe",
-            json={"notify_on": ["IN_STOCK", "PRICE_DOWN"]},
+            json={"events": ["BACK_IN_STOCK", "PRICE_DROP"]},
             headers=auth_headers(),
         )
 
-    assert response.status_code == 201
-    body = response.json()
-    assert body["product"]["id"] == PRODUCT_ID
-    assert body["notify_on"] == ["IN_STOCK", "PRICE_DOWN"]
-    assert body["created_at"].endswith("Z")
-    assert isinstance(body["id"], str)
+    assert response.status_code == 204
+    assert response.content == b""
 
 
 async def test_duplicate_subscription_returns_409(client, b2b_recorder):
@@ -222,16 +216,16 @@ async def test_duplicate_subscription_returns_409(client, b2b_recorder):
     async with client as ac:
         first = await ac.post(
             f"/api/v1/favorites/{PRODUCT_ID}/subscribe",
-            json={"notify_on": ["IN_STOCK"]},
+            json={"events": ["BACK_IN_STOCK"]},
             headers=auth_headers(),
         )
         second = await ac.post(
             f"/api/v1/favorites/{PRODUCT_ID}/subscribe",
-            json={"notify_on": ["PRICE_DOWN"]},
+            json={"events": ["PRICE_DROP"]},
             headers=auth_headers(),
         )
 
-    assert first.status_code == 201
+    assert first.status_code == 204
     assert second.status_code == 409
     assert second.json()["code"] == "SUBSCRIPTION_ALREADY_EXISTS"
 
@@ -239,10 +233,10 @@ async def test_duplicate_subscription_returns_409(client, b2b_recorder):
 @pytest.mark.parametrize(
     "payload",
     [
-        {"notify_on": []},
-        {"notify_on": ["WRONG"]},
-        {"notify_on": [1]},
-        {"notify_on": ["IN_STOCK", 1]},
+        {"events": []},
+        {"events": ["WRONG"]},
+        {"events": [1]},
+        {"events": ["BACK_IN_STOCK", 1]},
         {},
     ],
 )
@@ -273,7 +267,7 @@ async def test_subscribe_to_unknown_product_returns_404(client, b2b_recorder):
     async with client as ac:
         response = await ac.post(
             f"/api/v1/favorites/{PRODUCT_ID}/subscribe",
-            json={"notify_on": ["IN_STOCK"]},
+            json={"events": ["BACK_IN_STOCK"]},
             headers=auth_headers(),
         )
 

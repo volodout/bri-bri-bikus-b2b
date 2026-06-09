@@ -154,43 +154,55 @@ class CollectionService:
         self._b2b_client = b2b_client
 
     async def list_collections(self, limit: int, offset: int) -> dict:
-        collections, total_count = await self._repository.list_active(datetime.now(timezone.utc).date(), limit, offset)
+        today = datetime.now(timezone.utc).date()
+        collections, total_count = await self._repository.list_active(today, limit, offset)
+
+        product_ids_per_collection: dict[str, list[str]] = {}
+        for col in collections:
+            ids, _ = await self._repository.list_product_ids(col.id, 100, 0)
+            product_ids_per_collection[col.id] = ids
+
+        all_ids = list(dict.fromkeys(
+            pid for ids in product_ids_per_collection.values() for pid in ids
+        ))
+
+        b2b_products = await self._fetch_products(all_ids)
+
+        result = []
+        for col in collections:
+            ids = product_ids_per_collection[col.id]
+            items = [b2b_products[pid] for pid in ids if pid in b2b_products]
+            unavailable_ids = [pid for pid in ids if pid not in b2b_products]
+            result.append({**_collection_payload(col), "products": items, "unavailable_ids": unavailable_ids})
+
         return {
             "metadata": {"total_count": total_count, "limit": limit, "offset": offset},
-            "collections": [_collection_payload(collection) for collection in collections],
+            "collections": result,
         }
 
-    async def get_collection_products(self, collection_id: str, limit: int, offset: int) -> dict:
+    async def get_collection(self, collection_id: str) -> dict:
+        today = datetime.now(timezone.utc).date()
         collection = await self._repository.get(collection_id)
-        if collection is None or not _is_active_collection(collection, datetime.now(timezone.utc).date()):
+        if collection is None or not _is_active_collection(collection, today):
             raise NotFound("Collection not found")
 
-        product_ids, total_products = await self._repository.list_product_ids(collection_id, limit, offset)
-        if not product_ids:
-            return {
-                "collection_title": collection.title,
-                "total_products": total_products,
-                "items": [],
-                "unavailable_ids": [],
-            }
+        ids, _ = await self._repository.list_product_ids(collection_id, 100, 0)
+        b2b_products = await self._fetch_products(ids)
+        items = [b2b_products[pid] for pid in ids if pid in b2b_products]
+        unavailable_ids = [pid for pid in ids if pid not in b2b_products]
+        return {**_collection_payload(collection), "products": items, "unavailable_ids": unavailable_ids}
 
+    async def _fetch_products(self, product_ids: list[str]) -> dict[str, dict]:
+        if not product_ids:
+            return {}
         try:
             payload = await self._b2b_client.list_products_by_ids(product_ids)
         except B2BUnavailable as exc:
             raise ServiceUnavailable(exc.message)
-
-        returned = {
-            str(product["id"]): to_public_product(product)
-            for product in payload.get("items") or []
-            if isinstance(product, dict) and product.get("id") is not None
-        }
-        items = [returned[product_id] for product_id in product_ids if product_id in returned]
-        unavailable_ids = [product_id for product_id in product_ids if product_id not in returned]
         return {
-            "collection_title": collection.title,
-            "total_products": total_products,
-            "items": items,
-            "unavailable_ids": unavailable_ids,
+            str(p["id"]): to_public_product(p)
+            for p in payload.get("items") or []
+            if isinstance(p, dict) and p.get("id") is not None
         }
 
 
@@ -202,19 +214,6 @@ def validate_collections_pagination(limit_raw: str | None, offset_raw: str | Non
         raise InvalidRequest("limit and offset must be integers")
     if limit < 1 or limit > 50:
         raise InvalidRequest("limit must be between 1 and 50")
-    if offset < 0:
-        raise InvalidRequest("offset must be >= 0")
-    return limit, offset
-
-
-def validate_collection_products_pagination(limit_raw: str | None, offset_raw: str | None) -> tuple[int, int]:
-    try:
-        limit = int(limit_raw) if limit_raw is not None else 20
-        offset = int(offset_raw) if offset_raw is not None else 0
-    except ValueError:
-        raise InvalidRequest("limit and offset must be integers")
-    if limit < 1 or limit > 100:
-        raise InvalidRequest("limit must be between 1 and 100")
     if offset < 0:
         raise InvalidRequest("offset must be >= 0")
     return limit, offset

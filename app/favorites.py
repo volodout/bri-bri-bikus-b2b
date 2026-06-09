@@ -162,13 +162,12 @@ class FavoriteService:
         self._repository = repository
         self._b2b_client = b2b_client
 
-    async def add(self, user_id: str, product_id: str) -> tuple[dict, int]:
+    async def add(self, user_id: str, product_id: str) -> None:
         try:
             await self._b2b_client.get_product(product_id)
         except B2BUnavailable as exc:
             raise FavoritesB2BUnavailable(exc.message)
-        favorite, created = await self._repository.add(user_id, product_id)
-        return serialize_favorite_mutation(favorite, created=created), 201 if created else 200
+        await self._repository.add(user_id, product_id)
 
     async def remove(self, user_id: str, product_id: str) -> None:
         await self._repository.remove(user_id, product_id)
@@ -176,7 +175,7 @@ class FavoriteService:
     async def list(self, user_id: str, *, limit: int, offset: int) -> dict:
         favorites = await self._repository.list_for_user(user_id)
         if not favorites:
-            return {"items": [], "total": 0}
+            return {"items": [], "total_count": 0, "limit": limit, "offset": offset}
 
         try:
             payload = await self._b2b_client.list_products_by_ids([item.product_id for item in favorites])
@@ -194,23 +193,14 @@ class FavoriteService:
             product = products_by_id.get(favorite.product_id)
             if product is None:
                 continue
-            items.append(
-                {
-                    "product": to_public_product(product),
-                    "added_at": serialize_datetime(favorite.added_at),
-                }
-            )
+            items.append(to_public_product(product))
 
-        return {"items": items[offset : offset + limit], "total": len(items)}
-
-
-def serialize_favorite_mutation(favorite: Favorite, *, created: bool) -> dict:
-    return {
-        "product_id": favorite.product_id,
-        "user_id": favorite.user_id,
-        "added_at": serialize_datetime(favorite.added_at),
-        "message": "Product added to favorites" if created else "Product already in favorites",
-    }
+        return {
+            "items": items[offset : offset + limit],
+            "total_count": len(items),
+            "limit": limit,
+            "offset": offset,
+        }
 
 
 def serialize_datetime(value: datetime) -> str:

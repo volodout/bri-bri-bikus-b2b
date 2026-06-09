@@ -81,9 +81,9 @@ async def test_add_sku_increments_quantity_if_already_in_cart(client, b2b_record
         )
         cart = await ac.get("/api/v1/cart", headers=auth_headers())
 
-    assert first.status_code == 201
+    assert first.status_code == 200
     assert second.status_code == 200
-    assert second.json()["item"]["quantity"] == 3
+    assert second.json()["items"][0]["quantity"] == 3
     assert cart.json()["items"][0]["quantity"] == 3
 
 
@@ -131,7 +131,7 @@ async def test_get_cart_item_enriched_with_b2b_data(client, b2b_recorder):
             json={"sku_id": SKU_ID, "quantity": 2},
             headers=session_headers(),
         )
-        item_id = added.json()["item"]["item_id"]
+        item_id = added.json()["items"][0]["item_id"]
         response = await ac.get(f"/api/v1/cart/items/{item_id}", headers=session_headers())
 
     assert response.status_code == 200
@@ -200,3 +200,32 @@ async def test_guest_cart_merged_on_login(client, b2b_recorder):
     assert len(body["items"]) == 1
     assert body["items"][0]["quantity"] == 5
     assert guest_after.json()["items"] == []
+
+
+async def test_patch_item_updates_quantity_by_sku_id(client, b2b_recorder):
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == f"/api/v1/skus/{SKU_ID}":
+            return httpx.Response(200, json=sku_payload(active_quantity=10))
+        if request.url.path == "/api/v1/products":
+            return httpx.Response(200, json={"items": [product_payload(active_quantity=10)]})
+        raise AssertionError(f"unexpected upstream path {request.url.path}")
+
+    b2b_recorder.set_handler(handler)
+
+    async with client as ac:
+        await ac.post(
+            "/api/v1/cart/items",
+            json={"sku_id": SKU_ID, "quantity": 1},
+            headers=auth_headers(),
+        )
+        response = await ac.patch(
+            f"/api/v1/cart/items/{SKU_ID}",
+            json={"quantity": 5},
+            headers=auth_headers(),
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["item"]["sku_id"] == SKU_ID
+    assert body["item"]["quantity"] == 5
+    assert "summary" in body
