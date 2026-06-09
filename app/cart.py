@@ -370,9 +370,7 @@ class CartService:
         product, sku = await self._get_sku_payload(sku_id)
         _ensure_sku_can_be_added(product, sku, quantity)
         item = await self._repository.update_quantity(resolved_identity, current.id, quantity)
-        response = await self._mutation_response(resolved_identity, item)
-        response["message"] = "Cart item updated"
-        return response
+        return await self._mutation_response(resolved_identity, item)
 
     async def get_item(self, identity: CartIdentity, item_id: str) -> dict:
         item = await self._find_item(identity.without_session_for_user(), item_id)

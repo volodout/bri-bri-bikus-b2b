@@ -200,3 +200,32 @@ async def test_guest_cart_merged_on_login(client, b2b_recorder):
     assert len(body["items"]) == 1
     assert body["items"][0]["quantity"] == 5
     assert guest_after.json()["items"] == []
+
+
+async def test_patch_item_updates_quantity_by_sku_id(client, b2b_recorder):
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == f"/api/v1/skus/{SKU_ID}":
+            return httpx.Response(200, json=sku_payload(active_quantity=10))
+        if request.url.path == "/api/v1/products":
+            return httpx.Response(200, json={"items": [product_payload(active_quantity=10)]})
+        raise AssertionError(f"unexpected upstream path {request.url.path}")
+
+    b2b_recorder.set_handler(handler)
+
+    async with client as ac:
+        await ac.post(
+            "/api/v1/cart/items",
+            json={"sku_id": SKU_ID, "quantity": 1},
+            headers=auth_headers(),
+        )
+        response = await ac.patch(
+            f"/api/v1/cart/items/{SKU_ID}",
+            json={"quantity": 5},
+            headers=auth_headers(),
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["item"]["sku_id"] == SKU_ID
+    assert body["item"]["quantity"] == 5
+    assert "summary" in body

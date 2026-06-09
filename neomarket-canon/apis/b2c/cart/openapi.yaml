@@ -48,9 +48,9 @@ paths:
         - Если B2B временно недоступен — возвращается ошибка 503.
 
         **Пагинация:** поддерживается через параметры `limit` и `offset`.
-        Поле `total` содержит общее количество избранных товаров (только доступных) без учёта пагинации.
+        Поле `total_count` содержит общее количество доступных товаров в избранном без учёта пагинации.
 
-        **Пустое избранное:** возвращается `items: []`, `total: 0`.
+        **Пустое избранное:** возвращается `items: []`, `total_count: 0`.
       security:
         - BearerAuth: []
       parameters:
@@ -243,7 +243,7 @@ paths:
       summary: Подписка на уведомления о товаре
       description: >
         Создаёт подписку для текущего пользователя на уведомления
-        о появлении товара в наличии (IN_STOCK) или снижении цены (PRICE_DOWN).
+        о появлении товара в наличии (BACK_IN_STOCK) или снижении цены (PRICE_DROP).
       operationId: subscribeToProduct
       parameters:
         - name: product_id
@@ -1511,30 +1511,6 @@ components:
         - limit
         - offset
 
-    FavoriteMutationResponse:
-      type: object
-      properties:
-        product_id:
-          type: string
-          format: uuid
-          example: "550e8400-e29b-41d4-a716-446655440000"
-        user_id:
-          type: string
-          format: uuid
-          example: "123e4567-e89b-12d3-a456-426614174000"
-        added_at:
-          type: string
-          format: date-time
-          example: "2025-03-10T10:00:00Z"
-        message:
-          type: string
-          example: "Товар добавлен в избранное"
-      required:
-        - product_id
-        - user_id
-        - added_at
-        - message
-
     SubscribeRequest:
       type: object
       required:
@@ -2079,39 +2055,6 @@ components:
         - message
 
     # ----- СХЕМЫ ДЛЯ ПОДБОРОК продуктов -----
-    CollectionProductsResponse:
-      type: object
-      properties:
-        collection_title:
-          type: string
-          description: Название подборки
-          example: "Хиты продаж"
-
-        total_products:
-          type: integer
-          description: Общее количество товаров в подборке
-          example: 134
-
-        items:
-          type: array
-          description: Список товаров из подборки
-          items:
-            $ref: "#/components/schemas/Product"
-
-        unavailable_ids:
-          type: array
-          description: ID товаров, которые не удалось получить из B2B
-          items:
-            type: integer
-          example:
-            - 999
-            - 1001
-
-      required:
-        - collection_title
-        - total_products
-        - items
-
     AlsoBoughtResponse:
       type: object
       required:
