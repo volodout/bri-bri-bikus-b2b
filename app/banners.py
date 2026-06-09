@@ -81,7 +81,7 @@ class PostgresBannerRepository:
                 SELECT id::text, title, image_url, link, placement, priority, is_active, start_at, end_at, created_at
                 FROM banners
                 WHERE is_active = true
-                AND placement = 'home'
+                AND placement = 'catalog'
                 AND (start_at IS NULL OR start_at <= $1)
                 AND (end_at IS NULL OR end_at >= $1)
                 ORDER BY priority ASC, created_at ASC, id ASC
@@ -145,7 +145,7 @@ class BannerService:
     def __init__(self, repository: BannerRepository) -> None:
         self._repository = repository
 
-    async def list_home_banners(self) -> dict:
+    async def list_catalog_banners(self) -> dict:
         banners = await self._repository.list_active(datetime.now(timezone.utc))
         items = [_banner_payload(banner) for banner in banners]
         return {"items": items, "total_count": len(items)}
@@ -197,7 +197,7 @@ def _timestamp_field(value: object, field: str) -> datetime:
 def _is_active_banner(banner: Banner, now: datetime) -> bool:
     if not banner.is_active:
         return False
-    if banner.placement != "home":
+    if banner.placement != "catalog":
         return False
     if banner.start_at is not None and banner.start_at > now:
         return False
