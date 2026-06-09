@@ -12,6 +12,7 @@ from app.cart import InMemoryCartRepository
 from app.collections import InMemoryCollectionRepository
 from app.favorites import InMemoryFavoriteRepository
 from app.main import create_app
+from app.orders import InMemoryOrderRepository
 from app.subscriptions import InMemoryProductSubscriptionRepository
 
 
@@ -79,6 +80,7 @@ def client(b2b_recorder, banner_repository, collection_repository):
         cart_repository=InMemoryCartRepository(),
         banner_repository=banner_repository,
         collection_repository=collection_repository,
+        order_repository=InMemoryOrderRepository(),
     )
     transport = httpx.ASGITransport(app=app)
     return httpx.AsyncClient(transport=transport, base_url="http://b2c.test")

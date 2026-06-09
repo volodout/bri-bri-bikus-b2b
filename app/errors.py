@@ -5,10 +5,11 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 
 class CatalogError(Exception):
-    def __init__(self, status_code: int, code: str, message: str):
+    def __init__(self, status_code: int, code: str, message: str, extra: dict | None = None):
         self.status_code = status_code
         self.code = code
         self.message = message
+        self.extra = extra or {}
 
 
 class B2BUnavailable(CatalogError):
@@ -111,6 +112,35 @@ class OrphanCategoryHierarchy(CatalogError):
         super().__init__(422, "ORPHAN_NODE", message)
 
 
+class EmptyOrderItems(CatalogError):
+    def __init__(self, message: str = "Список items не может быть пустым"):
+        super().__init__(400, "INVALID_REQUEST", message)
+
+
+class MissingIdempotencyKey(CatalogError):
+    def __init__(self, message: str = "idempotency_key обязателен"):
+        super().__init__(400, "INVALID_REQUEST", message)
+
+
+class InvalidOrderQuantity(CatalogError):
+    def __init__(self, message: str = "Количество должно быть не менее 1 для каждой позиции"):
+        super().__init__(422, "INVALID_QUANTITY", message)
+
+
+class ReserveFailed(CatalogError):
+    def __init__(
+        self,
+        failed_items: list[dict],
+        message: str = "Не удалось зарезервировать товары",
+    ):
+        super().__init__(409, "RESERVE_FAILED", message, extra={"failed_items": failed_items})
+
+
+class OrdersB2BUnavailable(CatalogError):
+    def __init__(self, message: str = "Сервис товаров временно недоступен, попробуйте позже"):
+        super().__init__(503, "B2B_UNAVAILABLE", message)
+
+
 def _payload(code: str, message: str) -> dict:
     return {"code": code, "message": message}
 
@@ -118,7 +148,7 @@ def _payload(code: str, message: str) -> dict:
 async def catalog_error_handler(_: Request, exc: CatalogError) -> JSONResponse:
     return JSONResponse(
         status_code=exc.status_code,
-        content=_payload(exc.code, exc.message),
+        content={**_payload(exc.code, exc.message), **exc.extra},
     )
 
 

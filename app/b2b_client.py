@@ -1,11 +1,18 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, Mapping
 
 import httpx
 
 from app.config import settings
 from app.errors import B2BUnavailable, InvalidRequest, NotFound
+
+
+@dataclass(frozen=True)
+class ReserveOutcome:
+    reserved: bool
+    failed_items: list[dict[str, Any]]
 
 
 class B2BClient:
@@ -99,6 +106,36 @@ class B2BClient:
             raise B2BUnavailable("Upstream returned unexpected shape for similar products")
         return result
 
+    async def reserve(
+        self,
+        idempotency_key: str,
+        order_id: str,
+        items: list[Mapping[str, Any]],
+    ) -> ReserveOutcome:
+        client = self._client()
+        body = {
+            "idempotency_key": idempotency_key,
+            "order_id": order_id,
+            "items": [dict(item) for item in items],
+        }
+        try:
+            response = await client.post("/api/v1/inventory/reserve", json=body)
+        except (httpx.ConnectError, httpx.ReadError, httpx.TimeoutException, httpx.NetworkError):
+            raise B2BUnavailable()
+        except httpx.HTTPError as exc:
+            raise B2BUnavailable(f"Upstream transport error: {exc.__class__.__name__}")
+
+        status = response.status_code
+        if 200 <= status < 300:
+            return ReserveOutcome(reserved=True, failed_items=[])
+        if status == 409:
+            return ReserveOutcome(reserved=False, failed_items=_failed_items(_safe_json(response)))
+        if status in (502, 503, 504):
+            raise B2BUnavailable()
+        if status == 400:
+            raise InvalidRequest(_extract_message(_safe_json(response), "Invalid reserve request"))
+        raise B2BUnavailable(f"Unexpected upstream status: {status}")
+
     async def get_facets(self, query: list[tuple[str, str]]) -> dict:
         return await self._get("/api/v1/catalog/facets", query)
 
@@ -128,3 +165,12 @@ def _safe_json(response: httpx.Response) -> dict:
 
 def _extract_message(payload: dict, default: str) -> str:
     return str(payload.get("message") or payload.get("error") or default)
+
+
+def _failed_items(payload: dict) -> list[dict[str, Any]]:
+    raw = payload.get("failed_items")
+    if raw is None:
+        raw = payload.get("details")
+    if not isinstance(raw, list):
+        return []
+    return [item for item in raw if isinstance(item, dict)]

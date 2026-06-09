@@ -30,5 +30,13 @@ jobs:
             tests/test_catalog.py::test_invalid_sort_returns_400 \
             tests/test_catalog.py::test_b2b_unavailable_returns_502
 
+      - name: Run US-ORD-01 DoD tests
+        run: |
+          pytest -v \
+            tests/test_orders.py::test_checkout_creates_paid_order_with_fixed_prices \
+            tests/test_orders.py::test_partial_reserve_failure_returns_409 \
+            tests/test_orders.py::test_idempotency_returns_existing_order \
+            tests/test_orders.py::test_b2b_unavailable_returns_503
+
       - name: Run full test suite
         run: pytest -v
