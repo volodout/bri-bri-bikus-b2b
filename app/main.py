@@ -18,12 +18,13 @@ from app.errors import (
 )
 from app.config import settings
 from app.favorites import FavoriteRepository, FavoriteService, PostgresFavoriteRepository
+from app.orders import OrderRepository, OrderService, PostgresOrderRepository
 from app.subscriptions import (
     PostgresProductSubscriptionRepository,
     ProductSubscriptionRepository,
     ProductSubscriptionService,
 )
-from app.routes import banners, cart, categories, collections, facets, favorites, products
+from app.routes import banners, cart, categories, collections, facets, favorites, orders, products
 
 
 def create_app(
@@ -33,6 +34,7 @@ def create_app(
     cart_repository: CartRepository | None = None,
     banner_repository: BannerRepository | None = None,
     collection_repository: CollectionRepository | None = None,
+    order_repository: OrderRepository | None = None,
 ) -> FastAPI:
     client = b2b_client or B2BClient()
     favorites_repo = favorite_repository or PostgresFavoriteRepository(settings.database_url)
@@ -40,6 +42,7 @@ def create_app(
     cart_repo = cart_repository or PostgresCartRepository(settings.database_url)
     banners_repo = banner_repository or PostgresBannerRepository(settings.database_url)
     collections_repo = collection_repository or PostgresCollectionRepository(settings.database_url)
+    orders_repo = order_repository or PostgresOrderRepository(settings.database_url)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -51,6 +54,7 @@ def create_app(
             await cart_repo.aclose()
             await banners_repo.aclose()
             await collections_repo.aclose()
+            await orders_repo.aclose()
             await client.aclose()
 
     app = FastAPI(
@@ -70,6 +74,8 @@ def create_app(
     app.state.banner_service = BannerService(banners_repo)
     app.state.collection_repository = collections_repo
     app.state.collection_service = CollectionService(collections_repo, client)
+    app.state.order_repository = orders_repo
+    app.state.order_service = OrderService(orders_repo, client)
 
     app.add_exception_handler(CatalogError, catalog_error_handler)
     app.add_exception_handler(StarletteHTTPException, http_exception_handler)
@@ -82,6 +88,7 @@ def create_app(
     app.include_router(cart.router)
     app.include_router(banners.router)
     app.include_router(collections.router)
+    app.include_router(orders.router)
     return app
 
 
