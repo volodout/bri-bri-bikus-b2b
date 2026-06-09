@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import uuid
+
 import httpx
 
 PRODUCT_ID = "770e8400-e29b-41d4-a716-446655440002"
@@ -64,12 +66,60 @@ async def test_similar_returns_card_array_with_spec_fields(client, b2b_recorder)
     assert first["name"] == "Similar #100"
     assert first["min_price"] == 9999000
     assert first["has_stock"] is True
+    expected_url = f"https://cdn.neomarket.ru/{first['id']}.jpg"
     assert first["images"] == [
-        {"url": f"https://cdn.neomarket.ru/{first['id']}.jpg", "ordering": 0}
+        {
+            "id": str(uuid.uuid5(uuid.NAMESPACE_URL, expected_url)),
+            "url": expected_url,
+            "ordering": 0,
+        }
     ]
     assert "title" not in first
     assert "price" not in first
     assert "in_stock" not in first
+
+
+# ---------------------------------------------------------------------------
+# Contract: every image is an ImageRef with required id (uuid), url, ordering.
+# The id is derived deterministically from the url, so repeated requests for
+# the same product return a stable id.
+# ---------------------------------------------------------------------------
+async def test_image_carries_stable_uuid_id(client, b2b_recorder):
+    item = _short_item("770e8400-e29b-41d4-a716-446655440050", "Imaged")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=[item])
+
+    b2b_recorder.set_handler(handler)
+
+    async with client as ac:
+        first = (await ac.get(CATALOG_SIMILAR)).json()[0]
+        again = (await ac.get(CATALOG_SIMILAR)).json()[0]
+
+    image = first["images"][0]
+    assert set(image.keys()) == {"id", "url", "ordering"}
+    assert uuid.UUID(image["id"])
+    assert image["id"] == again["images"][0]["id"]
+
+
+# ---------------------------------------------------------------------------
+# Defensive: has_stock reflects the upstream value when B2B supplies it,
+# instead of being hardcoded to True.
+# ---------------------------------------------------------------------------
+async def test_has_stock_reflects_b2b_value(client, b2b_recorder):
+    item = _short_item("770e8400-e29b-41d4-a716-446655440060", "Sold out")
+    item["has_stock"] = False
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=[item])
+
+    b2b_recorder.set_handler(handler)
+
+    async with client as ac:
+        response = await ac.get(CATALOG_SIMILAR)
+
+    assert response.status_code == 200
+    assert response.json()[0]["has_stock"] is False
 
 
 # ---------------------------------------------------------------------------

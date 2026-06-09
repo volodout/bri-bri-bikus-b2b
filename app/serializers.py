@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
@@ -63,7 +64,8 @@ def to_public_product(b2b: Mapping[str, Any]) -> dict[str, Any]:
 def _card_images(cover_image: Any) -> list[dict[str, Any]]:
     if not cover_image:
         return []
-    return [{"url": cover_image, "ordering": 0}]
+    image_id = str(uuid.uuid5(uuid.NAMESPACE_URL, cover_image))
+    return [{"id": image_id, "url": cover_image, "ordering": 0}]
 
 
 def to_public_card(b2b: Mapping[str, Any]) -> dict[str, Any]:
@@ -71,7 +73,7 @@ def to_public_card(b2b: Mapping[str, Any]) -> dict[str, Any]:
         "id": b2b["id"],
         "name": b2b["title"],
         "min_price": int(b2b["min_price"]),
-        "has_stock": True,
+        "has_stock": b2b.get("has_stock", True),
         "images": _card_images(b2b.get("cover_image")),
     }
     if "slug" in b2b:
