@@ -261,42 +261,10 @@ paths:
             schema:
               $ref: "#/components/schemas/SubscribeRequest"
             example:
-              notify_on: ["IN_STOCK", "PRICE_DOWN"]
+              events: ["BACK_IN_STOCK", "PRICE_DROP"]
       responses:
-        "201":
+        "204":
           description: Подписка успешно создана
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/SubscriptionResponse"
-              example:
-                id: "6b9c1f4c-4b7c-4f8a-9a3b-6a8a2f95e2d1"
-                product:
-                  id: "123e4567-e89b-12d3-a456-426614174000"
-                  title: "iPhone 15 Pro Max"
-                  description: "Флагман Apple"
-                  status: "MODERATED"
-                  category:
-                    id: "3fa85f64-5717-4562-b3fc-2c963f66afa6"
-                    name: "Смартфоны"
-                  images:
-                    - url: "/s3/iphone15-1.jpg"
-                      ordering: 0
-                  characteristics:
-                    - name: "Бренд"
-                      value: "Apple"
-                  skus:
-                    - id: "7e1f5f3c-5e9c-4f1d-bf18-1f8f0a9c1b2c"
-                      name: "256GB Black"
-                      price: 12999000
-                      active_quantity: 5
-                      characteristics:
-                        - name: "Цвет"
-                          value: "Чёрный"
-                        - name: "Объём памяти"
-                          value: "256 ГБ"
-                notify_on: ["IN_STOCK", "PRICE_DOWN"]
-                created_at: "2026-03-09T12:00:00Z"
         "400":
           description: Невалидный запрос — пустой или некорректный массив notify_on
           content:
@@ -1616,43 +1584,19 @@ components:
     SubscribeRequest:
       type: object
       required:
-        - notify_on
+        - events
       properties:
-        notify_on:
+        events:
           type: array
           description: >
             Список событий, на которые хочет подписаться пользователь.
-            IN_STOCK — уведомление о появлении товара в наличии.
-            PRICE_DOWN — уведомление о снижении цены.
+            BACK_IN_STOCK — уведомление о появлении товара в наличии.
+            PRICE_DROP — уведомление о снижении цены.
           items:
             type: string
-            enum: [IN_STOCK, PRICE_DOWN]
+            enum: [BACK_IN_STOCK, PRICE_DROP]
           minItems: 1
-          example: ["IN_STOCK", "PRICE_DOWN"]
-
-    SubscriptionResponse:
-      type: object
-      description: Подписка пользователя на уведомления о товаре
-      properties:
-        id:
-          type: string
-          format: uuid
-          description: UUID подписки
-          example: "6b9c1f4c-4b7c-4f8a-9a3b-6a8a2f95e2d1"
-        product:
-          $ref: "#/components/schemas/Product"
-        notify_on:
-          type: array
-          description: События, на которые подписан пользователь
-          items:
-            type: string
-            enum: [IN_STOCK, PRICE_DOWN]
-          example: ["IN_STOCK", "PRICE_DOWN"]
-        created_at:
-          type: string
-          format: date-time
-          description: Дата создания подписки
-          example: "2026-03-09T12:00:00Z"
+          example: ["BACK_IN_STOCK", "PRICE_DROP"]
 
     # ----- СХЕМЫ ДЛЯ КОРЗИНЫ -----
 

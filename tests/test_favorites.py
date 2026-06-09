@@ -189,7 +189,7 @@ async def test_b2b_unavailable_returns_503_for_favorites(client, b2b_recorder, m
     assert response.json()["code"] == "B2B_UNAVAILABLE"
 
 
-async def test_subscribe_returns_201_with_notify_on(client, b2b_recorder):
+async def test_subscribe_returns_204_with_events(client, b2b_recorder):
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == f"/api/v1/products/{PRODUCT_ID}"
         return httpx.Response(200, json=product())
@@ -199,16 +199,12 @@ async def test_subscribe_returns_201_with_notify_on(client, b2b_recorder):
     async with client as ac:
         response = await ac.post(
             f"/api/v1/favorites/{PRODUCT_ID}/subscribe",
-            json={"notify_on": ["IN_STOCK", "PRICE_DOWN"]},
+            json={"events": ["BACK_IN_STOCK", "PRICE_DROP"]},
             headers=auth_headers(),
         )
 
-    assert response.status_code == 201
-    body = response.json()
-    assert body["product"]["id"] == PRODUCT_ID
-    assert body["notify_on"] == ["IN_STOCK", "PRICE_DOWN"]
-    assert body["created_at"].endswith("Z")
-    assert isinstance(body["id"], str)
+    assert response.status_code == 204
+    assert response.content == b""
 
 
 async def test_duplicate_subscription_returns_409(client, b2b_recorder):
@@ -220,16 +216,16 @@ async def test_duplicate_subscription_returns_409(client, b2b_recorder):
     async with client as ac:
         first = await ac.post(
             f"/api/v1/favorites/{PRODUCT_ID}/subscribe",
-            json={"notify_on": ["IN_STOCK"]},
+            json={"events": ["BACK_IN_STOCK"]},
             headers=auth_headers(),
         )
         second = await ac.post(
             f"/api/v1/favorites/{PRODUCT_ID}/subscribe",
-            json={"notify_on": ["PRICE_DOWN"]},
+            json={"events": ["PRICE_DROP"]},
             headers=auth_headers(),
         )
 
-    assert first.status_code == 201
+    assert first.status_code == 204
     assert second.status_code == 409
     assert second.json()["code"] == "SUBSCRIPTION_ALREADY_EXISTS"
 
@@ -237,10 +233,10 @@ async def test_duplicate_subscription_returns_409(client, b2b_recorder):
 @pytest.mark.parametrize(
     "payload",
     [
-        {"notify_on": []},
-        {"notify_on": ["WRONG"]},
-        {"notify_on": [1]},
-        {"notify_on": ["IN_STOCK", 1]},
+        {"events": []},
+        {"events": ["WRONG"]},
+        {"events": [1]},
+        {"events": ["BACK_IN_STOCK", 1]},
         {},
     ],
 )
@@ -271,7 +267,7 @@ async def test_subscribe_to_unknown_product_returns_404(client, b2b_recorder):
     async with client as ac:
         response = await ac.post(
             f"/api/v1/favorites/{PRODUCT_ID}/subscribe",
-            json={"notify_on": ["IN_STOCK"]},
+            json={"events": ["BACK_IN_STOCK"]},
             headers=auth_headers(),
         )
 

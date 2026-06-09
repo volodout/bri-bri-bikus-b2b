@@ -14,10 +14,8 @@ from app.errors import (
     NotFound,
     ProductNotFound,
 )
-from app.favorites import serialize_datetime
-from app.serializers import to_public_product
 
-ALLOWED_NOTIFY_ON = ("IN_STOCK", "PRICE_DOWN")
+ALLOWED_EVENTS = ("BACK_IN_STOCK", "PRICE_DROP")
 
 
 @dataclass(frozen=True)
@@ -147,43 +145,33 @@ class ProductSubscriptionService:
         self,
         user_id: str,
         product_id: str,
-        notify_on: tuple[Any, ...],
-    ) -> dict:
-        notify_on = validate_notify_on(notify_on)
+        events: tuple[Any, ...],
+    ) -> None:
+        events = validate_events(events)
         try:
-            product = await self._b2b_client.get_product(product_id)
+            await self._b2b_client.get_product(product_id)
         except NotFound as exc:
             raise ProductNotFound(exc.message)
         except B2BUnavailable as exc:
             raise FavoritesB2BUnavailable(exc.message)
 
-        subscription = await self._repository.add(user_id, product_id, notify_on)
-        return serialize_subscription(subscription, product)
+        await self._repository.add(user_id, product_id, events)
 
     async def unsubscribe(self, user_id: str, product_id: str) -> None:
         await self._repository.remove(user_id, product_id)
 
 
-def validate_notify_on(values: tuple[Any, ...]) -> tuple[str, ...]:
+def validate_events(values: tuple[Any, ...]) -> tuple[str, ...]:
     if not values:
-        raise InvalidNotifyOn("notify_on must contain at least one value")
+        raise InvalidNotifyOn("events must contain at least one value")
 
     result: list[str] = []
     for value in values:
-        if not isinstance(value, str) or value not in ALLOWED_NOTIFY_ON:
-            raise InvalidNotifyOn("notify_on contains unsupported value")
+        if not isinstance(value, str) or value not in ALLOWED_EVENTS:
+            raise InvalidNotifyOn("events contains unsupported value")
         if value not in result:
             result.append(value)
     return tuple(result)
-
-
-def serialize_subscription(subscription: ProductSubscription, product: dict) -> dict:
-    return {
-        "id": subscription.id,
-        "product": to_public_product(product),
-        "notify_on": list(subscription.notify_on),
-        "created_at": serialize_datetime(subscription.created_at),
-    }
 
 
 def _subscription_from_row(row: Any) -> ProductSubscription:
