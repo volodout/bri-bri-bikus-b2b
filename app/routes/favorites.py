@@ -20,14 +20,14 @@ def get_subscription_service(request: Request) -> ProductSubscriptionService:
     return request.app.state.subscription_service
 
 
-@router.post("/api/v1/favorites/{product_id}")
-async def add_to_favorites(request: Request, product_id: str) -> JSONResponse:
+@router.put("/api/v1/favorites/{product_id}", status_code=204)
+async def add_to_favorites(request: Request, product_id: str) -> Response:
     product_id = _require_uuid(product_id, field="product_id")
     user_id = user_id_from_jwt(request)
 
     service = get_favorite_service(request)
-    body, status_code = await service.add(user_id, product_id)
-    return JSONResponse(status_code=status_code, content=body)
+    await service.add(user_id, product_id)
+    return Response(status_code=204)
 
 
 @router.delete("/api/v1/favorites/{product_id}", status_code=204)
