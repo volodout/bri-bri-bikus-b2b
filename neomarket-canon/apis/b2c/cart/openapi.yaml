@@ -1018,42 +1018,31 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
 
   # ========== ПОДБОРКИ ==========
-  /api/v1/collections/{collection_id}/products:
+  /api/v1/catalog/collections:
     get:
       tags:
         - Подборки
-      summary: Получение списка товаров из подборки
+      summary: Получить список подборок с товарами
       description: |
-        Возвращает список товаров, входящих в конкретную подборку
-        (например "Хиты продаж").
+        Возвращает список активных подборок. Каждая подборка содержит embedded-список
+        товаров, обогащённых из B2B одним batch-запросом.
 
-        Сервис хранит идентификаторы товаров в подборке и обращается
-        к B2B каталогу товаров для получения актуальной информации.
+        Фильтрация: is_active = true, start_date ≤ today.
+        Сортировка: по priority ASC, затем created_at ASC.
 
-        Если B2B сервис недоступен — возвращается ошибка 503.
-
-        Товары, отсутствующие в каталоге B2B, исключаются из списка
-        `items`, а их идентификаторы возвращаются в `unavailable_ids`.
-
+        Товары, недоступные в B2B, попадают в unavailable_ids (не в products).
+        Если B2B недоступен — 503.
+      operationId: getCatalogCollections
       parameters:
-        - name: collection_id
-          in: path
-          required: true
-          description: Идентификатор подборки
-          schema:
-            type: string
-            example: "col-002"
-
         - name: limit
           in: query
           required: false
-          description: Максимальное количество товаров в ответе
+          description: Количество подборок
           schema:
             type: integer
             minimum: 1
-            maximum: 100
-            default: 20
-
+            maximum: 50
+            default: 10
         - name: offset
           in: query
           required: false
@@ -1062,35 +1051,62 @@ paths:
             type: integer
             minimum: 0
             default: 0
-
       responses:
         "200":
-          description: Успешное получение списка товаров подборки
+          description: Список активных подборок с embedded товарами
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/CollectionProductsResponse"
-
+                $ref: "#/components/schemas/CollectionsResponse"
         "400":
           description: Невалидные параметры запроса
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Error"
-
-        "404":
-          description: Подборка не найдена
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-
+                $ref: "#/components/schemas/ErrorResponse"
         "503":
           description: B2B сервис временно недоступен
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Error"
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/catalog/collections/{collection_id}:
+    get:
+      tags:
+        - Подборки
+      summary: Получить подборку по ID
+      description: |
+        Возвращает одну активную подборку с embedded товарами.
+        404 если подборка не существует или неактивна.
+      operationId: getCatalogCollection
+      parameters:
+        - name: collection_id
+          in: path
+          required: true
+          description: UUID подборки
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Подборка с embedded товарами
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Collection"
+        "404":
+          description: Подборка не найдена или неактивна
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: B2B сервис временно недоступен
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
   /api/v1/cart/also_bought:
     get:
@@ -1228,67 +1244,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
-  # ========== ПОДБОРКИ ==========
-  /api/v1/main/collections:
-    get:
-      tags:
-        - Подборки
-      summary: Получить список подборок
-      description: >
-        Возвращает список тематических подборок для витрины главной страницы.
-        Сервис автоматически фильтрует неактивные записи и сортирует результат
-        по полю `priority`.
-      operationId: getCollections
-      parameters:
-        - name: limit
-          in: query
-          required: false
-          description: Количество подборок для возврата.
-          schema:
-            type: integer
-            minimum: 1
-            maximum: 50
-            default: 10
-        - name: offset
-          in: query
-          required: false
-          description: Смещение для пагинации.
-          schema:
-            type: integer
-            minimum: 0
-            default: 0
-      responses:
-        '200':
-          description: Успешный возврат списка подборок.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CollectionsResponse'
-              example:
-                metadata:
-                  total_count: 42
-                  limit: 10
-                  offset: 0
-                collections:
-                  - id: "550e8400-e29b-41d4-a716-446655440000"
-                    title: "Новогодние скидки"
-                    description: "Успейте купить подарки до праздников"
-                    cover_image_url: "https://cdn.neomarket.ru/collections/holiday.jpg"
-                    target_url: "/collections/holiday-sale"
-                    priority: 100
-                    start_date: "2024-12-20"
-        '400':
-          description: Невалидные параметры запроса.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '500':
-          description: Внутренняя ошибка сервера.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
+  # ========== ПОДБОРКИ — см. /api/v1/catalog/collections ==========
                 
 components:
     
@@ -2199,6 +2155,8 @@ components:
         - target_url
         - priority
         - start_date
+        - products
+        - unavailable_ids
       properties:
         id:
           type: string
@@ -2214,7 +2172,7 @@ components:
           type: string
           format: uri
           description: |
-            URL изображения-обложки. Может быть как относительным путем (начинается с /), 
+            URL изображения-обложки. Может быть как относительным путем (начинается с /),
             так и абсолютным URL. Клиент должен корректно обрабатывать оба варианта.
           example: "https://cdn.neomarket.ru/collections/hits.jpg"
         target_url:
@@ -2227,8 +2185,19 @@ components:
         start_date:
           type: string
           format: date
-          description: "Дата начала показа подборки. До наступления этой даты подборка скрыта на главной странице."
+          description: "Дата начала показа подборки. До наступления этой даты подборка скрыта."
           example: "2024-12-20"
+        products:
+          type: array
+          description: Товары подборки, обогащённые из B2B. Пустой массив если товаров нет.
+          items:
+            $ref: "#/components/schemas/CatalogProductCard"
+        unavailable_ids:
+          type: array
+          description: UUID товаров, отсутствующих в B2B на момент запроса.
+          items:
+            type: string
+            format: uuid
 
     CollectionsResponse:
       type: object

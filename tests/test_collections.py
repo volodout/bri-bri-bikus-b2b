@@ -65,17 +65,16 @@ async def test_collections_list_returns_metadata_without_products(client, collec
     collection_repository.add_collection(
         collection("8c9e6679-7425-40de-944b-e07fc1f90ae7", title="Future", priority=2, start_date=date.today() + timedelta(days=1))
     )
-    collection_repository.add_product(CollectionProduct(COLLECTION_ID, PRODUCT_ID, 1))
 
     async with client as ac:
-        response = await ac.get("/api/v1/main/collections")
+        response = await ac.get("/api/v1/catalog/collections")
 
     assert response.status_code == 200
     body = response.json()
     assert body["metadata"] == {"total_count": 2, "limit": 10, "offset": 0}
     assert [item["id"] for item in body["collections"]] == [SECOND_COLLECTION_ID, COLLECTION_ID]
-    assert "items" not in body["collections"][0]
-    assert "products" not in body["collections"][0]
+    assert body["collections"][0]["products"] == []
+    assert body["collections"][0]["unavailable_ids"] == []
 
 
 async def test_collection_products_enriched_from_b2b(client, collection_repository, b2b_recorder):
@@ -99,16 +98,16 @@ async def test_collection_products_enriched_from_b2b(client, collection_reposito
     b2b_recorder.set_handler(handler)
 
     async with client as ac:
-        response = await ac.get(f"/api/v1/collections/{COLLECTION_ID}/products")
+        response = await ac.get("/api/v1/catalog/collections")
 
     assert response.status_code == 200
     body = response.json()
-    assert body["collection_title"] == "Hits"
-    assert body["total_products"] == 2
-    assert [item["id"] for item in body["items"]] == [PRODUCT_ID, SECOND_PRODUCT_ID]
-    assert body["unavailable_ids"] == []
-    assert "cost_price" not in body["items"][0]
-    assert "reserved_quantity" not in body["items"][0]["skus"][0]
+    col = body["collections"][0]
+    assert col["title"] == "Hits"
+    assert [item["id"] for item in col["products"]] == [PRODUCT_ID, SECOND_PRODUCT_ID]
+    assert col["unavailable_ids"] == []
+    assert "cost_price" not in col["products"][0]
+    assert "reserved_quantity" not in col["products"][0]["skus"][0]
 
 
 async def test_unavailable_products_in_unavailable_ids(client, collection_repository, b2b_recorder):
@@ -123,27 +122,28 @@ async def test_unavailable_products_in_unavailable_ids(client, collection_reposi
     b2b_recorder.set_handler(handler)
 
     async with client as ac:
-        response = await ac.get(f"/api/v1/collections/{COLLECTION_ID}/products")
+        response = await ac.get("/api/v1/catalog/collections")
 
     assert response.status_code == 200
     body = response.json()
-    assert [item["id"] for item in body["items"]] == [PRODUCT_ID]
-    assert body["unavailable_ids"] == [MISSING_PRODUCT_ID]
+    col = body["collections"][0]
+    assert [item["id"] for item in col["products"]] == [PRODUCT_ID]
+    assert col["unavailable_ids"] == [MISSING_PRODUCT_ID]
 
 
 async def test_unknown_collection_returns_404(client):
     async with client as ac:
-        response = await ac.get(f"/api/v1/collections/{COLLECTION_ID}/products")
+        response = await ac.get(f"/api/v1/catalog/collections/{COLLECTION_ID}")
 
     assert response.status_code == 404
     assert response.json()["code"] == "NOT_FOUND"
 
 
-async def test_inactive_collection_products_returns_404(client, collection_repository):
+async def test_inactive_collection_returns_404(client, collection_repository):
     collection_repository.add_collection(collection(is_active=False))
 
     async with client as ac:
-        response = await ac.get(f"/api/v1/collections/{COLLECTION_ID}/products")
+        response = await ac.get(f"/api/v1/catalog/collections/{COLLECTION_ID}")
 
     assert response.status_code == 404
     assert response.json()["code"] == "NOT_FOUND"
