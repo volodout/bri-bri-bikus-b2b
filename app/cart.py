@@ -346,7 +346,7 @@ class CartService:
         if identity.user_id is not None and identity.session_id:
             await self._repository.merge_guest_into_user(identity.user_id, identity.session_id)
 
-    async def add_item(self, identity: CartIdentity, sku_id: str, quantity: int) -> tuple[dict, int]:
+    async def add_item(self, identity: CartIdentity, sku_id: str, quantity: int) -> dict:
         _validate_quantity(quantity)
         target_identity = identity.without_session_for_user()
         product, sku = await self._get_sku_payload(sku_id)
@@ -356,22 +356,21 @@ class CartService:
         )
         requested_quantity = quantity + (existing.quantity if existing is not None else 0)
         _ensure_sku_can_be_added(product, sku, requested_quantity)
-        item, created = await self._repository.add(target_identity, str(product["id"]), sku_id, quantity)
-        response = await self._mutation_response(target_identity, item)
-        response["message"] = "Cart item added" if created else "Cart item updated"
-        return response, 201 if created else 200
+        await self._repository.add(target_identity, str(product["id"]), sku_id, quantity)
+        return await self._cart_response(target_identity)
 
     async def get_cart(self, identity: CartIdentity) -> dict:
         await self.merge_if_needed(identity)
         return await self._cart_response(identity.without_session_for_user())
 
-    async def update_item(self, identity: CartIdentity, item_id: str, quantity: int) -> dict:
+    async def update_item(self, identity: CartIdentity, sku_id: str, quantity: int) -> dict:
         _validate_quantity(quantity)
-        current = await self._find_item(identity.without_session_for_user(), item_id)
-        product, sku = await self._get_sku_payload(current.sku_id)
+        resolved_identity = identity.without_session_for_user()
+        current = await self._find_item_by_sku(resolved_identity, sku_id)
+        product, sku = await self._get_sku_payload(sku_id)
         _ensure_sku_can_be_added(product, sku, quantity)
-        item = await self._repository.update_quantity(identity.without_session_for_user(), item_id, quantity)
-        response = await self._mutation_response(identity.without_session_for_user(), item)
+        item = await self._repository.update_quantity(resolved_identity, current.id, quantity)
+        response = await self._mutation_response(resolved_identity, item)
         response["message"] = "Cart item updated"
         return response
 
@@ -383,8 +382,10 @@ class CartService:
             raise CartItemNotFound()
         return enriched_item
 
-    async def remove_item(self, identity: CartIdentity, item_id: str) -> None:
-        await self._repository.remove(identity.without_session_for_user(), item_id)
+    async def remove_item(self, identity: CartIdentity, item_id: str) -> dict:
+        resolved_identity = identity.without_session_for_user()
+        await self._repository.remove(resolved_identity, item_id)
+        return await self._cart_response(resolved_identity)
 
     async def clear(self, identity: CartIdentity) -> None:
         await self._repository.clear(identity.without_session_for_user())
@@ -392,6 +393,12 @@ class CartService:
     async def _find_item(self, identity: CartIdentity, item_id: str) -> CartItem:
         for item in await self._repository.list_items(identity):
             if item.id == item_id:
+                return item
+        raise CartItemNotFound()
+
+    async def _find_item_by_sku(self, identity: CartIdentity, sku_id: str) -> CartItem:
+        for item in await self._repository.list_items(identity):
+            if item.sku_id == sku_id:
                 return item
         raise CartItemNotFound()
 
@@ -484,7 +491,7 @@ def _validate_quantity(quantity: int) -> None:
 
 def _ensure_sku_can_be_added(product: dict, sku: dict, quantity: int) -> None:
     status = product.get("status")
-    if status not in (None, "MODERATED"):
+    if status != "MODERATED":
         raise SkuNotAvailable()
     active_quantity = int(sku.get("active_quantity") or 0)
     if active_quantity <= 0:

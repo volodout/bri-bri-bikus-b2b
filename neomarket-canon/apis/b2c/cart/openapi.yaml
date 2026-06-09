@@ -486,18 +486,12 @@ paths:
               sku_id: "7c9e6679-7425-40de-944b-e07fc1f90ae7"
               quantity: 1
       responses:
-        "201":
-          description: Товар добавлен как новая позиция
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/CartMutationResponse"
         "200":
-          description: SKU уже был в корзине, количество увеличено
+          description: Актуальное состояние корзины после добавления товара
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/CartMutationResponse"
+                $ref: "#/components/schemas/CartResponse"
         "400":
           description: Невалидный запрос
           content:
@@ -547,6 +541,94 @@ paths:
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
 
+  /api/v1/cart/items/{sku_id}:
+    patch:
+      operationId: updateCartItem
+      tags:
+        - Корзина
+      summary: Изменить количество товара
+      description: |
+        Обновляет количество позиции корзины, адресуемой по `sku_id` (UUID из каталога B2B).
+
+        Проверяет принадлежность позиции текущему пользователю или сессии,
+        доступность SKU и достаточность остатков.
+        Для удаления позиции используется `DELETE /api/v1/cart/items/{item_id}`.
+
+        Хотя бы один из заголовков `X-User-Id` или `X-Session-Id` должен быть передан.
+      parameters:
+        - name: sku_id
+          in: path
+          required: true
+          description: UUID SKU из каталога B2B
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/XUserId"
+        - $ref: "#/components/parameters/XSessionId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateCartItemRequest"
+            example:
+              quantity: 2
+      responses:
+        "200":
+          description: Количество обновлено
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CartMutationResponse"
+        "400":
+          description: Невалидный запрос
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                invalid_quantity:
+                  value:
+                    code: "INVALID_QUANTITY"
+                    message: "Количество должно быть не менее 1"
+                missing_identity:
+                  value:
+                    code: "MISSING_CART_IDENTITY"
+                    message: "Передайте X-User-Id или X-Session-Id"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Позиция не найдена
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                code: "CART_ITEM_NOT_FOUND"
+                message: "Позиция не найдена в корзине"
+        "410":
+          description: Товар заблокирован или снят с продажи
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                code: "PRODUCT_NOT_AVAILABLE"
+                message: "Товар недоступен и не может быть обновлён"
+        "422":
+          description: Недостаточно остатков
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                code: "INSUFFICIENT_STOCK"
+                message: "Нельзя установить 10, доступно только 5"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
   /api/v1/cart/items/{item_id}:
     parameters:
       - $ref: "#/components/parameters/ItemId"
@@ -586,95 +668,6 @@ paths:
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
 
-    put:
-      operationId: updateCartItem
-      tags:
-        - Корзина
-      summary: Изменить количество товара
-      description: |
-        Обновляет количество существующей позиции корзины.
-
-        Проверяет принадлежность позиции текущему пользователю или сессии,
-        доступность SKU и достаточность остатков.
-        Для удаления позиции используется `DELETE`.
-
-        Хотя бы один из заголовков `X-User-Id` или `X-Session-Id` должен быть передан.
-      parameters:
-        - $ref: "#/components/parameters/XUserId"
-        - $ref: "#/components/parameters/XSessionId"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/UpdateCartItemRequest"
-            example:
-              quantity: 2
-      responses:
-        "200":
-          description: Количество обновлено
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/CartMutationResponse"
-        "400":
-          description: Невалидный запрос
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-              examples:
-                invalid_quantity:
-                  value:
-                    code: "INVALID_QUANTITY"
-                    message: "Количество должно быть не менее 1"
-                missing_identity:
-                  value:
-                    code: "MISSING_CART_IDENTITY"
-                    message: "Передайте X-User-Id или X-Session-Id"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          description: Попытка изменить чужую позицию
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-              example:
-                code: "ACCESS_DENIED"
-                message: "Нет доступа к этой позиции корзины"
-        "404":
-          description: Позиция не найдена
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-              example:
-                code: "CART_ITEM_NOT_FOUND"
-                message: "Позиция не найдена в корзине"
-        "410":
-          description: Товар заблокирован или снят с продажи
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-              example:
-                code: "PRODUCT_NOT_AVAILABLE"
-                message: "Товар недоступен и не может быть обновлён"
-        "422":
-          description: Недостаточно остатков
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-              example:
-                code: "INSUFFICIENT_STOCK"
-                message: "Нельзя установить 10, доступно только 5"
-        "500":
-          $ref: "#/components/responses/InternalServerError"
-        "503":
-          $ref: "#/components/responses/ServiceUnavailable"
-
     delete:
       operationId: deleteCartItem
       tags:
@@ -682,12 +675,17 @@ paths:
       summary: Удалить позицию из корзины
       description: |
         Удаляет одну позицию из корзины пользователя или гостевой сессии.
+        Возвращает актуальное состояние корзины после удаления.
       parameters:
         - $ref: "#/components/parameters/XUserId"
         - $ref: "#/components/parameters/XSessionId"
       responses:
-        "204":
-          description: Позиция удалена
+        "200":
+          description: Позиция удалена — возвращается актуальное состояние корзины
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CartResponse"
         "400":
           $ref: "#/components/responses/MissingCartIdentity"
         "401":

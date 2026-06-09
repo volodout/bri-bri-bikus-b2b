@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Request, Response
-from fastapi.responses import JSONResponse
 
 from app.cart import CartService, identity_from_request
 from app.errors import InvalidRequest
@@ -30,26 +29,25 @@ async def clear_cart(request: Request) -> Response:
 
 
 @router.post("/api/v1/cart/items")
-async def add_cart_item(request: Request) -> JSONResponse:
+async def add_cart_item(request: Request) -> dict:
     identity = identity_from_request(request)
     body = await _json_body(request)
     sku_id = _require_uuid(body.get("sku_id"), field="sku_id")
     quantity = _quantity_from_body(body)
 
     service = get_cart_service(request)
-    response, status_code = await service.add_item(identity, sku_id, quantity)
-    return JSONResponse(status_code=status_code, content=response)
+    return await service.add_item(identity, sku_id, quantity)
 
 
-@router.put("/api/v1/cart/items/{item_id}")
-async def update_cart_item(request: Request, item_id: str) -> dict:
+@router.patch("/api/v1/cart/items/{sku_id}")
+async def update_cart_item(request: Request, sku_id: str) -> dict:
     identity = identity_from_request(request)
-    item_id = _require_uuid(item_id, field="item_id")
+    sku_id = _require_uuid(sku_id, field="sku_id")
     body = await _json_body(request)
     quantity = _quantity_from_body(body)
 
     service = get_cart_service(request)
-    return await service.update_item(identity, item_id, quantity)
+    return await service.update_item(identity, sku_id, quantity)
 
 
 @router.get("/api/v1/cart/items/{item_id}")
@@ -60,13 +58,12 @@ async def get_cart_item(request: Request, item_id: str) -> dict:
     return await service.get_item(identity, item_id)
 
 
-@router.delete("/api/v1/cart/items/{item_id}", status_code=204)
-async def delete_cart_item(request: Request, item_id: str) -> Response:
+@router.delete("/api/v1/cart/items/{item_id}")
+async def delete_cart_item(request: Request, item_id: str) -> dict:
     identity = identity_from_request(request)
     item_id = _require_uuid(item_id, field="item_id")
     service = get_cart_service(request)
-    await service.remove_item(identity, item_id)
-    return Response(status_code=204)
+    return await service.remove_item(identity, item_id)
 
 
 async def _json_body(request: Request) -> dict:

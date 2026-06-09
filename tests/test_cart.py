@@ -81,9 +81,9 @@ async def test_add_sku_increments_quantity_if_already_in_cart(client, b2b_record
         )
         cart = await ac.get("/api/v1/cart", headers=auth_headers())
 
-    assert first.status_code == 201
+    assert first.status_code == 200
     assert second.status_code == 200
-    assert second.json()["item"]["quantity"] == 3
+    assert second.json()["items"][0]["quantity"] == 3
     assert cart.json()["items"][0]["quantity"] == 3
 
 
@@ -131,7 +131,7 @@ async def test_get_cart_item_enriched_with_b2b_data(client, b2b_recorder):
             json={"sku_id": SKU_ID, "quantity": 2},
             headers=session_headers(),
         )
-        item_id = added.json()["item"]["item_id"]
+        item_id = added.json()["items"][0]["item_id"]
         response = await ac.get(f"/api/v1/cart/items/{item_id}", headers=session_headers())
 
     assert response.status_code == 200
