@@ -54,10 +54,10 @@ async def test_active_banners_returned_sorted_by_priority(client, banner_reposit
 
     assert response.status_code == 200
     body = response.json()
-    assert body["total_count"] == 2
-    assert [item["id"] for item in body["items"]] == [SECOND_BANNER_ID, BANNER_ID]
-    assert [item["priority"] for item in body["items"]] == [10, 20]
-    assert "is_active" not in body["items"][0]
+    assert len(body) == 2
+    assert [item["id"] for item in body] == [SECOND_BANNER_ID, BANNER_ID]
+    assert [item["ordering"] for item in body] == [10, 20]
+    assert "is_active" not in body[0]
 
 
 async def test_no_active_banners_returns_200_empty(client, banner_repository):
@@ -69,7 +69,7 @@ async def test_no_active_banners_returns_200_empty(client, banner_repository):
         response = await ac.get("/api/v1/catalog/banners")
 
     assert response.status_code == 200
-    assert response.json() == {"items": [], "total_count": 0}
+    assert response.json() == []
 
 
 async def test_click_on_unknown_banner_returns_400(client):

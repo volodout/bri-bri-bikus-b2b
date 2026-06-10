@@ -255,7 +255,7 @@ paths:
             format: uuid
           example: "123e4567-e89b-12d3-a456-426614174000"
       requestBody:
-        required: true
+        required: false
         content:
           application/json:
             schema:
@@ -357,39 +357,45 @@ paths:
                       - item_id: "f47ac10b-58cc-4372-a567-0e02b2c3d479"
                         sku_id: "7c9e6679-7425-40de-944b-e07fc1f90ae7"
                         product_id: "550e8400-e29b-41d4-a716-446655440000"
+                        name: "iPhone 15 Pro Max 256GB Black"
                         product_title: "iPhone 15 Pro Max"
                         sku_name: "256GB Black"
                         image_url: "/s3/iphone15-1.jpg"
                         unit_price: 12999000
                         quantity: 1
-                        available_stock: 5
+                        available_quantity: 5
                         line_total: 12999000
-                        available: true
+                        is_available: true
                         unavailable_reason: null
                       - item_id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
                         sku_id: "8a4e3f9c-1a2b-4c8d-9e5f-6b7a8c9d0e1f"
                         product_id: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+                        name: "Чехол силиконовый Прозрачный"
                         product_title: "Чехол силиконовый"
                         sku_name: "Прозрачный"
                         image_url: "/s3/case-1.jpg"
                         unit_price: 299000
                         quantity: 2
-                        available_stock: 2
+                        available_quantity: 2
                         line_total: 598000
-                        available: true
+                        is_available: true
                         unavailable_reason: null
                       - item_id: "b2c3d4e5-f6a7-8901-bcde-f12345678901"
                         sku_id: "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d"
                         product_id: "1e2a3b4c-5d6e-7f8a-9b0c-1d2e3f4a5b6c"
+                        name: "Кроссовки Nike Air Max 42 размер"
                         product_title: "Кроссовки Nike Air Max"
                         sku_name: "42 размер"
                         image_url: "/s3/nike-1.jpg"
                         unit_price: 899000
                         quantity: 1
-                        available_stock: 0
+                        available_quantity: 0
                         line_total: 0
-                        available: false
+                        is_available: false
                         unavailable_reason: "OUT_OF_STOCK"
+                    items_count: 3
+                    subtotal: 13597000
+                    is_valid: false
                     summary:
                       total_amount: 13597000
                       total_items: 3
@@ -416,6 +422,9 @@ paths:
                   summary: Пустая корзина
                   value:
                     items: []
+                    items_count: 0
+                    subtotal: 0
+                    is_valid: false
                     summary:
                       total_amount: 0
                       total_items: 0
@@ -915,20 +924,20 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/BannerListResponse"
-              example:
+                type: array
                 items:
-                  - id: "550e8400-e29b-41d4-a716-446655440000"
-                    title: "Скидки на электронику до -30%"
-                    image_url: "/cdn/banners/electronics-sale.jpg"
-                    link: "/catalog?category_id=3"
-                    priority: 10
-                  - id: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
-                    title: "Новинки сезона"
-                    image_url: "/cdn/banners/new-arrivals.jpg"
-                    link: "/collections/5"
-                    priority: 20
-                total_count: 2
+                  $ref: "#/components/schemas/Banner"
+              example:
+                - id: "550e8400-e29b-41d4-a716-446655440000"
+                  title: "Скидки на электронику до -30%"
+                  image_url: "/cdn/banners/electronics-sale.jpg"
+                  link: "/catalog?category_id=3"
+                  ordering: 10
+                - id: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+                  title: "Новинки сезона"
+                  image_url: "/cdn/banners/new-arrivals.jpg"
+                  link: "/collections/5"
+                  ordering: 20
         "500":
           description: Внутренняя ошибка сервера
           content:
@@ -1057,7 +1066,9 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/CollectionsResponse"
+                type: array
+                items:
+                  $ref: "#/components/schemas/Collection"
         "400":
           description: Невалидные параметры запроса
           content:
@@ -1565,13 +1576,14 @@ components:
         - item_id
         - sku_id
         - product_id
+        - name
         - product_title
         - sku_name
         - unit_price
         - quantity
-        - available_stock
+        - available_quantity
         - line_total
-        - available
+        - is_available
       properties:
         item_id:
           type: string
@@ -1588,6 +1600,10 @@ components:
           format: uuid
           description: ID товара
           example: "550e8400-e29b-41d4-a716-446655440000"
+        name:
+          type: string
+          description: Единое название позиции (product_title + sku_name)
+          example: "iPhone 15 Pro Max 256GB Black"
         product_title:
           type: string
           description: Название товара
@@ -1610,7 +1626,7 @@ components:
           minimum: 1
           description: Количество в корзине
           example: 1
-        available_stock:
+        available_quantity:
           type: integer
           minimum: 0
           description: Текущий остаток на складе
@@ -1619,7 +1635,7 @@ components:
           type: integer
           description: Сумма по позиции = unit_price × quantity. Для недоступного товара может быть 0
           example: 12999000
-        available:
+        is_available:
           type: boolean
           description: Доступен ли товар для покупки
           example: true
@@ -1629,13 +1645,14 @@ components:
           description: |
             Причина недоступности. `null`, если товар доступен.
             Возможные значения: OUT_OF_STOCK, PRODUCT_BLOCKED,
-            PRODUCT_DELISTED, SKU_DISABLED.
+            PRODUCT_DELISTED, ON_MODERATION, PRODUCT_DELETED.
           enum:
             - OUT_OF_STOCK
             - PRODUCT_BLOCKED
             - PRODUCT_DELISTED
-            - SKU_DISABLED
-            - null 
+            - ON_MODERATION
+            - PRODUCT_DELETED
+            - null
           example: null
 
     CartSummary:
@@ -1729,6 +1746,9 @@ components:
       type: object
       required:
         - items
+        - items_count
+        - subtotal
+        - is_valid
         - summary
         - checkout_payload
       properties:
@@ -1737,6 +1757,18 @@ components:
           description: Список позиций корзины, обогащённых данными из B2B
           items:
             $ref: "#/components/schemas/CartItem"
+        items_count:
+          type: integer
+          description: Количество уникальных позиций в корзине
+          example: 3
+        subtotal:
+          type: integer
+          description: Сумма по доступным товарам в копейках
+          example: 13597000
+        is_valid:
+          type: boolean
+          description: Все позиции доступны и корзина готова к оформлению
+          example: true
         summary:
           $ref: "#/components/schemas/CartSummary"
         checkout_payload:
@@ -1927,22 +1959,6 @@ components:
               example: "B2B service returned 500"
             
     # ----- СХЕМЫ ДЛЯ БАННЕРОВ (Блок И, команда Изи 90) -----
-    BannerListResponse:
-      type: object
-      required:
-        - items
-        - total_count
-      properties:
-        items:
-          type: array
-          description: Список активных баннеров, отсортированных по priority
-          items:
-            $ref: "#/components/schemas/Banner"
-        total_count:
-          type: integer
-          description: Общее количество возвращённых баннеров
-          example: 3
-
     Banner:
       type: object
       required:
@@ -1950,7 +1966,7 @@ components:
         - title
         - image_url
         - link
-        - priority
+        - ordering
       properties:
         id:
           type: string
@@ -1971,11 +1987,10 @@ components:
             Внутренний URL перехода при клике.
             Примеры: /catalog?category_id=3, /products/42, /collections/1
           example: "/catalog?category_id=3"
-        priority:
+        ordering:
           type: integer
           description: |
-            Приоритет отображения (меньше значение = выше в слайдере).
-            Консистентно с полем priority в подборках (блок К).
+            Порядок отображения (меньше значение = выше в слайдере).
           example: 10
 
     BannerEventsRequest:
@@ -2093,7 +2108,7 @@ components:
       type: object
       required:
         - id
-        - title
+        - name
         - cover_image_url
         - target_url
         - priority
@@ -2105,7 +2120,7 @@ components:
           type: string
           format: uuid
           example: "550e8400-e29b-41d4-a716-446655440000"
-        title:
+        name:
           type: string
           example: "Новогодние скидки"
         description:
@@ -2141,30 +2156,3 @@ components:
           items:
             type: string
             format: uuid
-
-    CollectionsResponse:
-      type: object
-      required:
-        - metadata
-        - collections
-      properties:
-        metadata:
-          type: object
-          required:
-            - total_count
-            - limit
-            - offset
-          properties:
-            total_count:
-              type: integer
-              example: 42
-            limit:
-              type: integer
-              example: 10
-            offset:
-              type: integer
-              example: 0
-        collections:
-          type: array
-          items:
-            $ref: '#/components/schemas/Collection'

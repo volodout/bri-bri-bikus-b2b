@@ -3,7 +3,13 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
-from enum import StrEnum
+try:
+    from enum import StrEnum
+except ImportError:
+    from enum import Enum
+
+    class StrEnum(str, Enum):
+        pass
 from typing import Any, Protocol
 from uuid import UUID, uuid4
 

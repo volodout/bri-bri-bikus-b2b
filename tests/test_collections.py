@@ -71,10 +71,10 @@ async def test_collections_list_returns_metadata_without_products(client, collec
 
     assert response.status_code == 200
     body = response.json()
-    assert body["metadata"] == {"total_count": 2, "limit": 10, "offset": 0}
-    assert [item["id"] for item in body["collections"]] == [SECOND_COLLECTION_ID, COLLECTION_ID]
-    assert body["collections"][0]["products"] == []
-    assert body["collections"][0]["unavailable_ids"] == []
+    assert len(body) == 2
+    assert [item["id"] for item in body] == [SECOND_COLLECTION_ID, COLLECTION_ID]
+    assert body[0]["products"] == []
+    assert body[0]["unavailable_ids"] == []
 
 
 async def test_collection_products_enriched_from_b2b(client, collection_repository, b2b_recorder):
@@ -102,8 +102,8 @@ async def test_collection_products_enriched_from_b2b(client, collection_reposito
 
     assert response.status_code == 200
     body = response.json()
-    col = body["collections"][0]
-    assert col["title"] == "Hits"
+    col = body[0]
+    assert col["name"] == "Hits"
     assert [item["id"] for item in col["products"]] == [PRODUCT_ID, SECOND_PRODUCT_ID]
     assert col["unavailable_ids"] == []
     assert "cost_price" not in col["products"][0]
@@ -126,7 +126,7 @@ async def test_unavailable_products_in_unavailable_ids(client, collection_reposi
 
     assert response.status_code == 200
     body = response.json()
-    col = body["collections"][0]
+    col = body[0]
     assert [item["id"] for item in col["products"]] == [PRODUCT_ID]
     assert col["unavailable_ids"] == [MISSING_PRODUCT_ID]
 

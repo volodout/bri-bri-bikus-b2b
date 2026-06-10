@@ -508,21 +508,24 @@ def _enrich_item(item: CartItem, product: dict | None) -> dict:
 
     stock = int(sku.get("active_quantity") or 0)
     reason = _unavailable_reason(product, sku)
-    available = reason is None
+    is_available = reason is None
     unit_price = int(sku.get("price") or 0)
-    line_total = unit_price * item.quantity if available else 0
+    line_total = unit_price * item.quantity if is_available else 0
+    product_title = str(product.get("title") or "")
+    sku_name = str(sku.get("name") or "")
     return {
         "item_id": item.id,
         "sku_id": item.sku_id,
         "product_id": str(product.get("id") or item.product_id),
-        "product_title": str(product.get("title") or ""),
-        "sku_name": str(sku.get("name") or ""),
+        "name": f"{product_title} {sku_name}".strip(),
+        "product_title": product_title,
+        "sku_name": sku_name,
         "image_url": sku.get("image") or _first_product_image(product),
         "unit_price": unit_price,
         "quantity": item.quantity,
-        "available_stock": stock,
+        "available_quantity": stock,
         "line_total": line_total,
-        "available": available,
+        "is_available": is_available,
         "unavailable_reason": reason,
     }
 
@@ -563,14 +566,15 @@ def _unavailable_item(item: CartItem, reason: str) -> dict:
         "item_id": item.id,
         "sku_id": item.sku_id,
         "product_id": item.product_id,
+        "name": "",
         "product_title": "",
         "sku_name": "",
         "image_url": None,
         "unit_price": 0,
         "quantity": item.quantity,
-        "available_stock": 0,
+        "available_quantity": 0,
         "line_total": 0,
-        "available": False,
+        "is_available": False,
         "unavailable_reason": reason,
     }
 
@@ -586,9 +590,10 @@ def _first_product_image(product: dict) -> str | None:
 
 
 def _cart_payload(items: list[dict]) -> dict:
-    available_items = [item for item in items if item["available"]]
+    available_items = [item for item in items if item["is_available"]]
     total_amount = sum(item["line_total"] for item in available_items)
     total_quantity = sum(item["quantity"] for item in items)
+    is_valid = bool(available_items) and len(available_items) == len(items)
     checkout_items = [
         {
             "product_id": item["product_id"],
@@ -601,13 +606,16 @@ def _cart_payload(items: list[dict]) -> dict:
     ]
     return {
         "items": items,
+        "items_count": len(items),
+        "subtotal": total_amount,
+        "is_valid": is_valid,
         "summary": {
             "total_amount": total_amount,
             "total_items": len(items),
             "total_quantity": total_quantity,
             "available_items": len(available_items),
             "has_unavailable_items": len(available_items) != len(items),
-            "checkout_ready": bool(available_items) and len(available_items) == len(items),
+            "checkout_ready": is_valid,
             "currency": "RUB",
         },
         "checkout_payload": {
