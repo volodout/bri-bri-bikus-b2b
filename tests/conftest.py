@@ -6,6 +6,7 @@ from urllib.parse import parse_qsl
 import httpx
 import pytest
 
+from app.addresses import InMemoryAddressRepository
 from app.b2b_client import B2BClient
 from app.banners import InMemoryBannerRepository
 from app.cart import InMemoryCartRepository
@@ -67,7 +68,12 @@ def collection_repository():
 
 
 @pytest.fixture
-def client(b2b_recorder, banner_repository, collection_repository):
+def address_repository():
+    return InMemoryAddressRepository()
+
+
+@pytest.fixture
+def client(b2b_recorder, banner_repository, collection_repository, address_repository):
     b2b = B2BClient(
         base_url="http://b2b.test",
         service_key="test-service-key",
@@ -81,6 +87,7 @@ def client(b2b_recorder, banner_repository, collection_repository):
         banner_repository=banner_repository,
         collection_repository=collection_repository,
         order_repository=InMemoryOrderRepository(),
+        address_repository=address_repository,
     )
     transport = httpx.ASGITransport(app=app)
     return httpx.AsyncClient(transport=transport, base_url="http://b2c.test")

@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from app.addresses import AddressRepository, PostgresAddressRepository
 from app.b2b_client import B2BClient
 from app.banners import BannerRepository, BannerService, PostgresBannerRepository
 from app.cart import CartRepository, CartService, PostgresCartRepository
@@ -35,6 +36,7 @@ def create_app(
     banner_repository: BannerRepository | None = None,
     collection_repository: CollectionRepository | None = None,
     order_repository: OrderRepository | None = None,
+    address_repository: AddressRepository | None = None,
 ) -> FastAPI:
     client = b2b_client or B2BClient()
     favorites_repo = favorite_repository or PostgresFavoriteRepository(settings.database_url)
@@ -43,6 +45,7 @@ def create_app(
     banners_repo = banner_repository or PostgresBannerRepository(settings.database_url)
     collections_repo = collection_repository or PostgresCollectionRepository(settings.database_url)
     orders_repo = order_repository or PostgresOrderRepository(settings.database_url)
+    addresses_repo = address_repository or PostgresAddressRepository(settings.database_url)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -55,6 +58,7 @@ def create_app(
             await banners_repo.aclose()
             await collections_repo.aclose()
             await orders_repo.aclose()
+            await addresses_repo.aclose()
             await client.aclose()
 
     app = FastAPI(
@@ -75,7 +79,8 @@ def create_app(
     app.state.collection_repository = collections_repo
     app.state.collection_service = CollectionService(collections_repo, client)
     app.state.order_repository = orders_repo
-    app.state.order_service = OrderService(orders_repo, client)
+    app.state.address_repository = addresses_repo
+    app.state.order_service = OrderService(orders_repo, client, addresses_repo)
 
     app.add_exception_handler(CatalogError, catalog_error_handler)
     app.add_exception_handler(StarletteHTTPException, http_exception_handler)

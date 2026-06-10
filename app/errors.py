@@ -141,6 +141,11 @@ class OrdersB2BUnavailable(CatalogError):
         super().__init__(503, "B2B_UNAVAILABLE", message)
 
 
+class AddressNotFound(CatalogError):
+    def __init__(self, message: str = "Адрес доставки не найден"):
+        super().__init__(400, "ADDRESS_NOT_FOUND", message)
+
+
 def _payload(code: str, message: str) -> dict:
     return {"code": code, "message": message}
 
