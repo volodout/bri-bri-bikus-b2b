@@ -13,8 +13,16 @@ except ImportError:
 from typing import Any, Protocol
 from uuid import UUID, uuid4
 
+from app.addresses import (
+    Address,
+    AddressRepository,
+    address_from_snapshot,
+    address_snapshot,
+    to_address_response,
+)
 from app.b2b_client import B2BClient
 from app.errors import (
+    AddressNotFound,
     B2BUnavailable,
     CancelNotAllowed,
     EmptyOrderItems,
@@ -76,7 +84,9 @@ class Order:
     status: OrderStatus
     items: tuple[OrderItem, ...]
     total_amount: int
-    delivery_address: str | None
+    address: Address
+    payment_method_id: str
+    comment: str | None
     idempotency_key: str
     created_at: datetime
     updated_at: datetime
@@ -140,7 +150,8 @@ class PostgresOrderRepository:
             order_row = await connection.fetchrow(
                 """
                 SELECT id::text, user_id::text, status, total_amount,
-                       delivery_address, idempotency_key::text, created_at, updated_at
+                       address, payment_method_id::text, comment,
+                       idempotency_key::text, created_at, updated_at
                 FROM orders
                 WHERE idempotency_key = $1
                 """,
@@ -161,16 +172,19 @@ class PostgresOrderRepository:
                     await connection.execute(
                         """
                         INSERT INTO orders (
-                            id, user_id, status, total_amount,
-                            delivery_address, idempotency_key, created_at, updated_at
+                            id, user_id, status, total_amount, address,
+                            payment_method_id, comment, idempotency_key,
+                            created_at, updated_at
                         )
-                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
                         """,
                         UUID(order.id),
                         UUID(order.user_id),
                         order.status.value,
                         order.total_amount,
-                        order.delivery_address,
+                        address_snapshot(order.address),
+                        UUID(order.payment_method_id),
+                        order.comment,
                         UUID(order.idempotency_key),
                         order.created_at,
                         order.updated_at,
@@ -208,7 +222,8 @@ class PostgresOrderRepository:
             order_row = await connection.fetchrow(
                 """
                 SELECT id::text, user_id::text, status, total_amount,
-                       delivery_address, idempotency_key::text, created_at, updated_at
+                       address, payment_method_id::text, comment,
+                       idempotency_key::text, created_at, updated_at
                 FROM orders
                 WHERE id = $1 AND user_id = $2
                 """,
@@ -240,7 +255,8 @@ class PostgresOrderRepository:
             order_rows = await connection.fetch(
                 """
                 SELECT id::text, user_id::text, status, total_amount,
-                       delivery_address, idempotency_key::text, created_at, updated_at
+                       address, payment_method_id::text, comment,
+                       idempotency_key::text, created_at, updated_at
                 FROM orders
                 WHERE status = $1
                 ORDER BY created_at ASC
@@ -267,22 +283,34 @@ class PostgresOrderRepository:
 
 
 class OrderService:
-    def __init__(self, repository: OrderRepository, b2b_client: B2BClient) -> None:
+    def __init__(
+        self,
+        repository: OrderRepository,
+        b2b_client: B2BClient,
+        address_repository: AddressRepository,
+    ) -> None:
         self._repository = repository
         self._b2b_client = b2b_client
+        self._address_repository = address_repository
 
     async def create_order(
         self,
         user_id: str,
         idempotency_key: str,
         lines: list[OrderLine],
-        delivery_address: str | None,
+        address_id: str,
+        payment_method_id: str,
+        comment: str | None,
     ) -> tuple[Order, bool]:
         existing = await self._repository.find_by_idempotency_key(idempotency_key)
         if existing is not None:
             return existing, False
 
         _validate_lines(lines)
+
+        address = await self._address_repository.get(address_id, user_id)
+        if address is None:
+            raise AddressNotFound()
 
         resolved: list[tuple[OrderLine, dict, dict]] = []
         failed: list[dict[str, Any]] = []
@@ -301,7 +329,9 @@ class OrderService:
         if not outcome.reserved:
             raise ReserveFailed(outcome.failed_items)
 
-        order = _build_order(order_id, user_id, idempotency_key, delivery_address, resolved)
+        order = _build_order(
+            order_id, user_id, idempotency_key, address, payment_method_id, comment, resolved
+        )
         return await self._repository.create(order)
 
     async def cancel_order(self, user_id: str, order_id: str) -> Order:
@@ -415,7 +445,9 @@ def _build_order(
     order_id: str,
     user_id: str,
     idempotency_key: str,
-    delivery_address: str | None,
+    address: Address,
+    payment_method_id: str,
+    comment: str | None,
     resolved: list[tuple[OrderLine, dict, dict]],
 ) -> Order:
     now = datetime.now(timezone.utc)
@@ -440,7 +472,9 @@ def _build_order(
         status=OrderStatus.PAID,
         items=tuple(items),
         total_amount=sum(item.line_total for item in items),
-        delivery_address=delivery_address,
+        address=address,
+        payment_method_id=payment_method_id,
+        comment=comment,
         idempotency_key=idempotency_key,
         created_at=now,
         updated_at=now,
@@ -466,7 +500,9 @@ def _order_from_rows(order_row: Any, item_rows: list[Any]) -> Order:
             for row in item_rows
         ),
         total_amount=int(order_row["total_amount"]),
-        delivery_address=order_row["delivery_address"],
+        address=address_from_snapshot(order_row["address"]),
+        payment_method_id=str(order_row["payment_method_id"]),
+        comment=order_row["comment"],
         idempotency_key=str(order_row["idempotency_key"]),
         created_at=_parse_datetime(order_row["created_at"]),
         updated_at=_parse_datetime(order_row["updated_at"]),
@@ -481,25 +517,36 @@ def _parse_datetime(value: datetime | str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(timezone.utc)
 
 
+def _item_name(item: OrderItem) -> str:
+    if item.product_title and item.sku_name:
+        return f"{item.product_title} – {item.sku_name}"
+    return item.product_title or item.sku_name
+
+
 def to_order_response(order: Order) -> dict[str, Any]:
+    subtotal = sum(item.line_total for item in order.items)
+    delivery_cost = 0
     return {
         "id": order.id,
+        "buyer_id": order.user_id,
         "status": order.status.value,
         "items": [
             {
-                "id": item.id,
                 "sku_id": item.sku_id,
                 "product_id": item.product_id,
-                "product_title": item.product_title,
-                "sku_name": item.sku_name,
+                "name": _item_name(item),
                 "quantity": item.quantity,
                 "unit_price": item.unit_price,
                 "line_total": item.line_total,
             }
             for item in order.items
         ],
-        "total_amount": order.total_amount,
-        "delivery_address": order.delivery_address,
+        "subtotal": subtotal,
+        "delivery_cost": delivery_cost,
+        "total": subtotal + delivery_cost,
+        "address": to_address_response(order.address),
+        "payment_method_id": order.payment_method_id,
+        "comment": order.comment,
         "created_at": _iso(order.created_at),
         "updated_at": _iso(order.updated_at),
     }

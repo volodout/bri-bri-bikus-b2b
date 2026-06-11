@@ -22,10 +22,14 @@ async def create_order(request: Request) -> JSONResponse:
 
     idempotency_key = _idempotency_key(request, body)
     lines = _order_lines(body)
-    delivery_address = _delivery_address(body)
+    address_id = _required_uuid(body, "address_id")
+    payment_method_id = _required_uuid(body, "payment_method_id")
+    comment = _comment(body)
 
     service = get_order_service(request)
-    order, created = await service.create_order(user_id, idempotency_key, lines, delivery_address)
+    order, created = await service.create_order(
+        user_id, idempotency_key, lines, address_id, payment_method_id, comment
+    )
     return JSONResponse(status_code=201 if created else 200, content=to_order_response(order))
 
 
@@ -80,10 +84,20 @@ def _order_lines(body: dict) -> list[OrderLine]:
     return lines
 
 
-def _delivery_address(body: dict) -> str | None:
-    value = body.get("delivery_address")
+def _required_uuid(body: dict, field: str) -> str:
+    raw = body.get(field)
+    if not isinstance(raw, str) or not raw:
+        raise InvalidRequest(f"{field} обязателен")
+    valid = validate_uuid(raw, field=field)
+    if valid is None:
+        raise InvalidRequest(f"{field} должен быть UUID")
+    return valid
+
+
+def _comment(body: dict) -> str | None:
+    value = body.get("comment")
     if value is None:
         return None
     if not isinstance(value, str):
-        raise InvalidRequest("delivery_address должен быть строкой")
+        raise InvalidRequest("comment должен быть строкой")
     return value
