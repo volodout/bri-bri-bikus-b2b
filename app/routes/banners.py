@@ -13,7 +13,7 @@ def get_banner_service(request: Request) -> BannerService:
 
 
 @router.get("/api/v1/catalog/banners")
-async def get_catalog_banners(request: Request) -> dict:
+async def get_catalog_banners(request: Request) -> list:
     service = get_banner_service(request)
     return await service.list_catalog_banners()
 

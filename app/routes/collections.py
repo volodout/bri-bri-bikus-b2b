@@ -13,7 +13,7 @@ def get_collection_service(request: Request) -> CollectionService:
 
 
 @router.get("/api/v1/catalog/collections")
-async def list_collections(request: Request) -> dict:
+async def list_collections(request: Request) -> list:
     limit, offset = validate_collections_pagination(
         request.query_params.get("limit"),
         request.query_params.get("offset"),

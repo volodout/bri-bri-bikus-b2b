@@ -89,6 +89,9 @@ def _require_uuid(value: str, *, field: str) -> str:
 
 
 async def _json_body(request: Request) -> dict:
+    raw = await request.body()
+    if not raw:
+        return {}
     try:
         body = await request.json()
     except ValueError:

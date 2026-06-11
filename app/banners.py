@@ -145,10 +145,9 @@ class BannerService:
     def __init__(self, repository: BannerRepository) -> None:
         self._repository = repository
 
-    async def list_catalog_banners(self) -> dict:
+    async def list_catalog_banners(self) -> list:
         banners = await self._repository.list_active(datetime.now(timezone.utc))
-        items = [_banner_payload(banner) for banner in banners]
-        return {"items": items, "total_count": len(items)}
+        return [_banner_payload(banner) for banner in banners]
 
     async def record_events(self, user_id: str | None, events: list[BannerEvent]) -> None:
         if not events:
@@ -212,7 +211,7 @@ def _banner_payload(banner: Banner) -> dict:
         "title": banner.title,
         "image_url": banner.image_url,
         "link": banner.link,
-        "priority": banner.priority,
+        "ordering": banner.priority,
     }
 
 

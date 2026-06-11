@@ -1,8 +1,15 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+import logging
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
-from enum import StrEnum
+try:
+    from enum import StrEnum
+except ImportError:
+    from enum import Enum
+
+    class StrEnum(str, Enum):
+        pass
 from typing import Any, Protocol
 from uuid import UUID, uuid4
 
@@ -17,12 +24,24 @@ from app.b2b_client import B2BClient
 from app.errors import (
     AddressNotFound,
     B2BUnavailable,
+    CancelNotAllowed,
     EmptyOrderItems,
     InvalidOrderQuantity,
     NotFound,
+    OrderNotFound,
     OrdersB2BUnavailable,
     ReserveFailed,
 )
+
+logger = logging.getLogger(__name__)
+
+_ORDER_ITEMS_QUERY = """
+SELECT id::text, sku_id::text, product_id::text, product_title,
+       sku_name, quantity, unit_price, line_total
+FROM order_items
+WHERE order_id = $1
+ORDER BY position ASC
+"""
 
 
 class OrderStatus(StrEnum):
@@ -33,6 +52,11 @@ class OrderStatus(StrEnum):
     DELIVERED = "DELIVERED"
     CANCELLED = "CANCELLED"
     CANCEL_PENDING = "CANCEL_PENDING"
+
+
+CANCELLABLE_STATUSES: frozenset[OrderStatus] = frozenset(
+    {OrderStatus.CREATED, OrderStatus.PAID}
+)
 
 
 @dataclass(frozen=True)
@@ -73,6 +97,12 @@ class OrderRepository(Protocol):
 
     async def create(self, order: Order) -> tuple[Order, bool]: ...
 
+    async def get_by_id(self, order_id: str, user_id: str) -> Order | None: ...
+
+    async def save(self, order: Order) -> None: ...
+
+    async def list_by_status(self, status: OrderStatus) -> list[Order]: ...
+
     async def aclose(self) -> None: ...
 
 
@@ -92,6 +122,18 @@ class InMemoryOrderRepository:
         self._orders[order.id] = order
         self._by_key[order.idempotency_key] = order.id
         return order, True
+
+    async def get_by_id(self, order_id: str, user_id: str) -> Order | None:
+        order = self._orders.get(order_id)
+        if order is None or order.user_id != user_id:
+            return None
+        return order
+
+    async def save(self, order: Order) -> None:
+        self._orders[order.id] = order
+
+    async def list_by_status(self, status: OrderStatus) -> list[Order]:
+        return [order for order in self._orders.values() if order.status == status]
 
     async def aclose(self) -> None:
         return None
@@ -117,16 +159,7 @@ class PostgresOrderRepository:
             )
             if order_row is None:
                 return None
-            item_rows = await connection.fetch(
-                """
-                SELECT id::text, sku_id::text, product_id::text, product_title,
-                       sku_name, quantity, unit_price, line_total
-                FROM order_items
-                WHERE order_id = $1
-                ORDER BY position ASC
-                """,
-                UUID(order_row["id"]),
-            )
+            item_rows = await connection.fetch(_ORDER_ITEMS_QUERY, UUID(order_row["id"]))
         return _order_from_rows(order_row, item_rows)
 
     async def create(self, order: Order) -> tuple[Order, bool]:
@@ -182,6 +215,57 @@ class PostgresOrderRepository:
                     raise
                 return existing, False
         return order, True
+
+    async def get_by_id(self, order_id: str, user_id: str) -> Order | None:
+        pool = await self._get_pool()
+        async with pool.acquire() as connection:
+            order_row = await connection.fetchrow(
+                """
+                SELECT id::text, user_id::text, status, total_amount,
+                       delivery_address, idempotency_key::text, created_at, updated_at
+                FROM orders
+                WHERE id = $1 AND user_id = $2
+                """,
+                UUID(order_id),
+                UUID(user_id),
+            )
+            if order_row is None:
+                return None
+            item_rows = await connection.fetch(_ORDER_ITEMS_QUERY, UUID(order_id))
+        return _order_from_rows(order_row, item_rows)
+
+    async def save(self, order: Order) -> None:
+        pool = await self._get_pool()
+        async with pool.acquire() as connection:
+            await connection.execute(
+                """
+                UPDATE orders
+                SET status = $2, updated_at = $3
+                WHERE id = $1
+                """,
+                UUID(order.id),
+                order.status.value,
+                order.updated_at,
+            )
+
+    async def list_by_status(self, status: OrderStatus) -> list[Order]:
+        pool = await self._get_pool()
+        async with pool.acquire() as connection:
+            order_rows = await connection.fetch(
+                """
+                SELECT id::text, user_id::text, status, total_amount,
+                       delivery_address, idempotency_key::text, created_at, updated_at
+                FROM orders
+                WHERE status = $1
+                ORDER BY created_at ASC
+                """,
+                status.value,
+            )
+            orders: list[Order] = []
+            for order_row in order_rows:
+                item_rows = await connection.fetch(_ORDER_ITEMS_QUERY, UUID(order_row["id"]))
+                orders.append(_order_from_rows(order_row, item_rows))
+        return orders
 
     async def aclose(self) -> None:
         if self._pool is not None:
@@ -248,6 +332,29 @@ class OrderService:
         )
         return await self._repository.create(order)
 
+    async def cancel_order(self, user_id: str, order_id: str) -> Order:
+        order = await self._repository.get_by_id(order_id, user_id)
+        if order is None:
+            raise OrderNotFound()
+        if order.status not in CANCELLABLE_STATUSES:
+            raise CancelNotAllowed(order.status.value)
+
+        status = await self._unreserve_outcome(order)
+        cancelled = replace(order, status=status, updated_at=datetime.now(timezone.utc))
+        await self._repository.save(cancelled)
+        return cancelled
+
+    async def _unreserve_outcome(self, order: Order) -> OrderStatus:
+        try:
+            await self._b2b_client.unreserve(order.id, _unreserve_items(order))
+        except B2BUnavailable as exc:
+            logger.warning(
+                "unreserve failed, order moved to CANCEL_PENDING",
+                extra={"order_id": order.id, "reason": exc.message},
+            )
+            return OrderStatus.CANCEL_PENDING
+        return OrderStatus.CANCELLED
+
     async def _resolve_sku(self, sku_id: str) -> tuple[dict, dict]:
         try:
             payload = await self._b2b_client.get_sku(sku_id)
@@ -270,6 +377,31 @@ class OrderService:
             )
         except B2BUnavailable as exc:
             raise OrdersB2BUnavailable(exc.message)
+
+
+async def retry_pending_cancellations(
+    repository: OrderRepository, b2b_client: B2BClient
+) -> int:
+    pending = await repository.list_by_status(OrderStatus.CANCEL_PENDING)
+    cancelled = 0
+    for order in pending:
+        try:
+            await b2b_client.unreserve(order.id, _unreserve_items(order))
+        except B2BUnavailable as exc:
+            logger.warning(
+                "unreserve retry failed, order stays CANCEL_PENDING",
+                extra={"order_id": order.id, "reason": exc.message},
+            )
+            continue
+        await repository.save(
+            replace(order, status=OrderStatus.CANCELLED, updated_at=datetime.now(timezone.utc))
+        )
+        cancelled += 1
+    return cancelled
+
+
+def _unreserve_items(order: Order) -> list[dict[str, Any]]:
+    return [{"sku_id": item.sku_id, "quantity": item.quantity} for item in order.items]
 
 
 def _validate_lines(lines: list[OrderLine]) -> None:

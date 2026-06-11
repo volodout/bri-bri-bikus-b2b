@@ -33,6 +33,16 @@ async def create_order(request: Request) -> JSONResponse:
     return JSONResponse(status_code=201 if created else 200, content=to_order_response(order))
 
 
+@router.post("/api/v1/orders/{order_id}/cancel")
+async def cancel_order(request: Request, order_id: str) -> JSONResponse:
+    user_id = user_id_from_jwt(request)
+    validate_uuid(order_id, field="id")
+
+    service = get_order_service(request)
+    order = await service.cancel_order(user_id, order_id)
+    return JSONResponse(status_code=200, content=to_order_response(order))
+
+
 async def _json_body(request: Request) -> dict:
     try:
         body = await request.json()

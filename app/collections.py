@@ -175,10 +175,7 @@ class CollectionService:
             unavailable_ids = [pid for pid in ids if pid not in b2b_products]
             result.append({**_collection_payload(col), "products": items, "unavailable_ids": unavailable_ids})
 
-        return {
-            "metadata": {"total_count": total_count, "limit": limit, "offset": offset},
-            "collections": result,
-        }
+        return result
 
     async def get_collection(self, collection_id: str) -> dict:
         today = datetime.now(timezone.utc).date()
@@ -230,7 +227,7 @@ def _is_active_collection(collection: ProductCollection, today: date) -> bool:
 def _collection_payload(collection: ProductCollection) -> dict:
     return {
         "id": collection.id,
-        "title": collection.title,
+        "name": collection.title,
         "description": collection.description,
         "cover_image_url": collection.cover_image_url,
         "target_url": collection.target_url,

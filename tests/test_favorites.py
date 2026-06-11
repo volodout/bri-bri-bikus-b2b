@@ -258,6 +258,23 @@ async def test_invalid_notify_on_returns_400(client, b2b_recorder, payload):
     assert b2b_recorder.requests == []
 
 
+async def test_subscribe_without_body_returns_400(client, b2b_recorder):
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise AssertionError("B2B must not be called when body is absent")
+
+    b2b_recorder.set_handler(handler)
+
+    async with client as ac:
+        response = await ac.post(
+            f"/api/v1/favorites/{PRODUCT_ID}/subscribe",
+            headers=auth_headers(),
+        )
+
+    assert response.status_code == 400
+    assert response.json()["code"] == "INVALID_NOTIFY_ON"
+    assert b2b_recorder.requests == []
+
+
 async def test_subscribe_to_unknown_product_returns_404(client, b2b_recorder):
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(404, json={"message": "Product not found"})

@@ -164,7 +164,7 @@ async def test_unavailable_sku_shown_with_reason(client, b2b_recorder):
         response = await ac.get("/api/v1/cart", headers=auth_headers())
 
     item = response.json()["items"][0]
-    assert item["available"] is False
+    assert item["is_available"] is False
     assert item["unavailable_reason"] == "OUT_OF_STOCK"
     assert item["line_total"] == 0
     assert response.json()["summary"]["total_amount"] == 0
