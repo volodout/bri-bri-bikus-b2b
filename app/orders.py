@@ -55,7 +55,7 @@ class OrderStatus(StrEnum):
 
 
 CANCELLABLE_STATUSES: frozenset[OrderStatus] = frozenset(
-    {OrderStatus.CREATED, OrderStatus.PAID}
+    {OrderStatus.CREATED, OrderStatus.PAID, OrderStatus.ASSEMBLING}
 )
 
 

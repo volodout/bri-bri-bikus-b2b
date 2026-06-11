@@ -147,11 +147,31 @@ async def test_unreserve_failure_transitions_to_cancel_pending(
 
 
 # ---------------------------------------------------------------------------
-# Edge case: an ASSEMBLING order can no longer be cancelled -> 409
-# CANCEL_NOT_ALLOWED carrying the current status; B2B is never called.
+# Spec: an ASSEMBLING order is still cancellable (CREATED/PAID/ASSEMBLING). The
+# buyer changed their mind before shipping; B2B unreserve runs and the order
+# transitions to CANCELLED.
 # ---------------------------------------------------------------------------
 async def test_cancel_assembling_order_returns_409(client, b2b_recorder, order_repository):
     await order_repository.create(_make_order(status=OrderStatus.ASSEMBLING))
+    b2b_recorder.set_handler(_unreserve_ok)
+
+    async with client as ac:
+        response = await ac.post(f"/api/v1/orders/{ORDER_ID}/cancel", headers=auth_headers())
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "CANCELLED"
+    assert _unreserve_count(b2b_recorder) == 1
+
+    stored = await order_repository.get_by_id(ORDER_ID, USER_ID)
+    assert stored is not None and stored.status is OrderStatus.CANCELLED
+
+
+# ---------------------------------------------------------------------------
+# Edge case: an order already shipping can no longer be cancelled -> 409
+# CANCEL_NOT_ALLOWED carrying the current status; B2B is never called.
+# ---------------------------------------------------------------------------
+async def test_cancel_delivering_order_returns_409(client, b2b_recorder, order_repository):
+    await order_repository.create(_make_order(status=OrderStatus.DELIVERING))
 
     def handler(request: httpx.Request) -> httpx.Response:  # pragma: no cover
         raise AssertionError("B2B must not be called for a non-cancellable order")
@@ -164,7 +184,7 @@ async def test_cancel_assembling_order_returns_409(client, b2b_recorder, order_r
     assert response.status_code == 409
     body = response.json()
     _assert_error_contract(body, expected_code="CANCEL_NOT_ALLOWED")
-    assert body["current_status"] == "ASSEMBLING"
+    assert body["current_status"] == "DELIVERING"
     assert b2b_recorder.requests == []
 
 
