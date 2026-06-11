@@ -13,7 +13,7 @@ paths:
         - Orders
       summary: Отмена заказа (US-ORD-03)
       description: |
-        Отменяет заказ, пока он не ушёл в сборку. Допустимые статусы: CREATED, PAID.
+        Отменяет заказ, пока он не отгружен. Допустимые статусы: CREATED, PAID, ASSEMBLING.
         B2C вызывает B2B unreserve для освобождения резерва. Если unreserve упал
         (таймаут/5xx), намерение отмены принимается, заказ переходит в
         CANCEL_PENDING и unreserve ретраится асинхронно до успеха (→ CANCELLED).
@@ -161,5 +161,5 @@ components:
               $ref: '#/components/schemas/OrderStatus'
       example:
         code: CANCEL_NOT_ALLOWED
-        message: "Отмена невозможна: заказ в статусе ASSEMBLING"
-        current_status: ASSEMBLING
+        message: "Отмена невозможна: заказ в статусе DELIVERING"
+        current_status: DELIVERING
