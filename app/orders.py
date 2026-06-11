@@ -222,7 +222,8 @@ class PostgresOrderRepository:
             order_row = await connection.fetchrow(
                 """
                 SELECT id::text, user_id::text, status, total_amount,
-                       delivery_address, idempotency_key::text, created_at, updated_at
+                       address, payment_method_id::text, comment,
+                       idempotency_key::text, created_at, updated_at
                 FROM orders
                 WHERE id = $1 AND user_id = $2
                 """,
@@ -254,7 +255,8 @@ class PostgresOrderRepository:
             order_rows = await connection.fetch(
                 """
                 SELECT id::text, user_id::text, status, total_amount,
-                       delivery_address, idempotency_key::text, created_at, updated_at
+                       address, payment_method_id::text, comment,
+                       idempotency_key::text, created_at, updated_at
                 FROM orders
                 WHERE status = $1
                 ORDER BY created_at ASC

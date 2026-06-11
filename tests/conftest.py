@@ -78,7 +78,7 @@ def order_repository():
 
 
 @pytest.fixture
-def client(b2b_recorder, banner_repository, collection_repository, order_repository):
+def client(b2b_recorder, banner_repository, collection_repository, order_repository, address_repository):
     b2b = B2BClient(
         base_url="http://b2b.test",
         service_key="test-service-key",
@@ -91,7 +91,7 @@ def client(b2b_recorder, banner_repository, collection_repository, order_reposit
         cart_repository=InMemoryCartRepository(),
         banner_repository=banner_repository,
         collection_repository=collection_repository,
-        order_repository=InMemoryOrderRepository(),
+        order_repository=order_repository,
         address_repository=address_repository,
     )
     transport = httpx.ASGITransport(app=app)

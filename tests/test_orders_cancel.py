@@ -8,6 +8,7 @@ from uuid import uuid4
 import httpx
 import jwt
 
+from app.addresses import Address
 from app.b2b_client import B2BClient
 from app.orders import (
     InMemoryOrderRepository,
@@ -22,6 +23,8 @@ OTHER_USER_ID = "223e4567-e89b-12d3-a456-426614174999"
 ORDER_ID = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
 SKU_1 = "7c9e6679-7425-40de-944b-e07fc1f90ae7"
 PRODUCT_1 = "550e8400-e29b-41d4-a716-446655440000"
+ADDRESS_ID = "a0000000-0000-4000-8000-000000000001"
+PAYMENT_METHOD_ID = "b0000000-0000-4000-8000-000000000002"
 
 UNRESERVE_PATH = "/api/v1/inventory/unreserve"
 
@@ -48,13 +51,24 @@ def _make_order(*, order_id: str = ORDER_ID, user_id: str = USER_ID, status: Ord
         unit_price=12999000,
         line_total=25998000,
     )
+    address = Address(
+        id=ADDRESS_ID,
+        country="Россия",
+        city="Екатеринбург",
+        street="Мира",
+        building="19",
+        is_default=True,
+        created_at=moment,
+    )
     return Order(
         id=order_id,
         user_id=user_id,
         status=status,
         items=(item,),
         total_amount=25998000,
-        delivery_address="г. Екатеринбург, ул. Мира 19",
+        address=address,
+        payment_method_id=PAYMENT_METHOD_ID,
+        comment=None,
         idempotency_key=str(uuid4()),
         created_at=moment,
         updated_at=moment,
