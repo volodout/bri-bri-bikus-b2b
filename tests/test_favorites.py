@@ -237,7 +237,6 @@ async def test_duplicate_subscription_returns_409(client, b2b_recorder):
         {"events": ["WRONG"]},
         {"events": [1]},
         {"events": ["BACK_IN_STOCK", 1]},
-        {},
     ],
 )
 async def test_invalid_notify_on_returns_400(client, b2b_recorder, payload):
@@ -258,9 +257,10 @@ async def test_invalid_notify_on_returns_400(client, b2b_recorder, payload):
     assert b2b_recorder.requests == []
 
 
-async def test_subscribe_without_body_returns_400(client, b2b_recorder):
+async def test_subscribe_without_events_uses_default(client, b2b_recorder):
     def handler(request: httpx.Request) -> httpx.Response:
-        raise AssertionError("B2B must not be called when body is absent")
+        assert request.url.path == f"/api/v1/products/{PRODUCT_ID}"
+        return httpx.Response(200, json=product())
 
     b2b_recorder.set_handler(handler)
 
@@ -270,9 +270,8 @@ async def test_subscribe_without_body_returns_400(client, b2b_recorder):
             headers=auth_headers(),
         )
 
-    assert response.status_code == 400
-    assert response.json()["code"] == "INVALID_NOTIFY_ON"
-    assert b2b_recorder.requests == []
+    assert response.status_code == 204
+    assert response.content == b""
 
 
 async def test_subscribe_to_unknown_product_returns_404(client, b2b_recorder):

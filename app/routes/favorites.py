@@ -103,6 +103,8 @@ async def _json_body(request: Request) -> dict:
 
 def _events_from_body(body: dict) -> tuple[object, ...]:
     events = body.get("events")
+    if events is None:
+        return ("BACK_IN_STOCK", "PRICE_DROP")
     if not isinstance(events, list):
         return ()
     return tuple(events)

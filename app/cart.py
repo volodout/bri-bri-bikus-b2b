@@ -369,8 +369,8 @@ class CartService:
         current = await self._find_item_by_sku(resolved_identity, sku_id)
         product, sku = await self._get_sku_payload(sku_id)
         _ensure_sku_can_be_added(product, sku, quantity)
-        item = await self._repository.update_quantity(resolved_identity, current.id, quantity)
-        return await self._mutation_response(resolved_identity, item)
+        await self._repository.update_quantity(resolved_identity, current.id, quantity)
+        return await self._cart_response(resolved_identity)
 
     async def get_item(self, identity: CartIdentity, item_id: str) -> dict:
         item = await self._find_item(identity.without_session_for_user(), item_id)
@@ -380,9 +380,10 @@ class CartService:
             raise CartItemNotFound()
         return enriched_item
 
-    async def remove_item(self, identity: CartIdentity, item_id: str) -> dict:
+    async def remove_item(self, identity: CartIdentity, sku_id: str) -> dict:
         resolved_identity = identity.without_session_for_user()
-        await self._repository.remove(resolved_identity, item_id)
+        item = await self._find_item_by_sku(resolved_identity, sku_id)
+        await self._repository.remove(resolved_identity, item.id)
         return await self._cart_response(resolved_identity)
 
     async def clear(self, identity: CartIdentity) -> None:
@@ -399,13 +400,6 @@ class CartService:
             if item.sku_id == sku_id:
                 return item
         raise CartItemNotFound()
-
-    async def _mutation_response(self, identity: CartIdentity, item: CartItem) -> dict:
-        cart = await self._cart_response(identity)
-        enriched_item = next((value for value in cart["items"] if value["item_id"] == item.id), None)
-        if enriched_item is None:
-            enriched_item = _unavailable_item(item, "PRODUCT_DELETED")
-        return {"message": "Cart item updated", "item": enriched_item, "summary": cart["summary"]}
 
     async def _cart_response(self, identity: CartIdentity) -> dict:
         items = await self._repository.list_items(identity)
@@ -520,7 +514,7 @@ def _enrich_item(item: CartItem, product: dict | None) -> dict:
         "name": f"{product_title} {sku_name}".strip(),
         "product_title": product_title,
         "sku_name": sku_name,
-        "image_url": sku.get("image") or _first_product_image(product),
+        "image": _build_image_ref(sku, product),
         "unit_price": unit_price,
         "quantity": item.quantity,
         "available_quantity": stock,
@@ -569,7 +563,7 @@ def _unavailable_item(item: CartItem, reason: str) -> dict:
         "name": "",
         "product_title": "",
         "sku_name": "",
-        "image_url": None,
+        "image": None,
         "unit_price": 0,
         "quantity": item.quantity,
         "available_quantity": 0,
@@ -579,13 +573,25 @@ def _unavailable_item(item: CartItem, reason: str) -> dict:
     }
 
 
-def _first_product_image(product: dict) -> str | None:
-    images = product.get("images") or []
-    if not images:
-        return None
-    first = images[0]
-    if isinstance(first, dict):
-        return first.get("url")
+def _build_image_ref(sku: dict, product: dict) -> dict | None:
+    sku_images = sku.get("images")
+    if isinstance(sku_images, list) and sku_images:
+        first = sku_images[0]
+        if isinstance(first, dict) and first.get("url"):
+            return {k: first[k] for k in ("id", "url", "ordering", "alt", "is_main") if k in first}
+
+    sku_image = sku.get("image")
+    if isinstance(sku_image, str) and sku_image:
+        return {"url": sku_image, "ordering": 0}
+    if isinstance(sku_image, dict) and sku_image.get("url"):
+        return {k: sku_image[k] for k in ("id", "url", "ordering", "alt", "is_main") if k in sku_image}
+
+    product_images = product.get("images") or []
+    if product_images and isinstance(product_images[0], dict):
+        first = product_images[0]
+        if first.get("url"):
+            return {k: first[k] for k in ("id", "url", "ordering", "alt", "is_main") if k in first}
+
     return None
 
 
@@ -606,7 +612,7 @@ def _cart_payload(items: list[dict]) -> dict:
     ]
     return {
         "items": items,
-        "items_count": len(items),
+        "items_count": sum(item["quantity"] for item in items),
         "subtotal": total_amount,
         "is_valid": is_valid,
         "summary": {

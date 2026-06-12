@@ -58,12 +58,12 @@ async def get_cart_item(request: Request, item_id: str) -> dict:
     return await service.get_item(identity, item_id)
 
 
-@router.delete("/api/v1/cart/items/{item_id}")
-async def delete_cart_item(request: Request, item_id: str) -> dict:
+@router.delete("/api/v1/cart/items/{sku_id}")
+async def delete_cart_item(request: Request, sku_id: str) -> dict:
     identity = identity_from_request(request)
-    item_id = _require_uuid(item_id, field="item_id")
+    sku_id = _require_uuid(sku_id, field="sku_id")
     service = get_cart_service(request)
-    return await service.remove_item(identity, item_id)
+    return await service.remove_item(identity, sku_id)
 
 
 async def _json_body(request: Request) -> dict:

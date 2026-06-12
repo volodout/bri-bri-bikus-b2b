@@ -226,6 +226,64 @@ async def test_patch_item_updates_quantity_by_sku_id(client, b2b_recorder):
 
     assert response.status_code == 200
     body = response.json()
-    assert body["item"]["sku_id"] == SKU_ID
-    assert body["item"]["quantity"] == 5
-    assert "summary" in body
+    assert body["items"][0]["sku_id"] == SKU_ID
+    assert body["items"][0]["quantity"] == 5
+    assert body["items_count"] == 5
+    assert "subtotal" in body
+    assert "is_valid" in body
+
+
+async def test_items_count_sums_quantities(client, b2b_recorder):
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == f"/api/v1/skus/{SKU_ID}":
+            return httpx.Response(200, json=sku_payload(active_quantity=10))
+        if request.url.path == "/api/v1/products":
+            return httpx.Response(200, json={"items": [product_payload(active_quantity=10)]})
+        raise AssertionError(f"unexpected upstream path {request.url.path}")
+
+    b2b_recorder.set_handler(handler)
+
+    async with client as ac:
+        response = await ac.post(
+            "/api/v1/cart/items",
+            json={"sku_id": SKU_ID, "quantity": 3},
+            headers=auth_headers(),
+        )
+
+    assert response.status_code == 200
+    assert response.json()["items_count"] == 3
+
+
+async def test_delete_item_by_sku_id_returns_cart(client, b2b_recorder):
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == f"/api/v1/skus/{SKU_ID}":
+            return httpx.Response(200, json=sku_payload(active_quantity=10))
+        if request.url.path == "/api/v1/products":
+            return httpx.Response(200, json={"items": [product_payload(active_quantity=10)]})
+        raise AssertionError(f"unexpected upstream path {request.url.path}")
+
+    b2b_recorder.set_handler(handler)
+
+    async with client as ac:
+        await ac.post(
+            "/api/v1/cart/items",
+            json={"sku_id": SKU_ID, "quantity": 2},
+            headers=auth_headers(),
+        )
+        response = await ac.delete(f"/api/v1/cart/items/{SKU_ID}", headers=auth_headers())
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["items"] == []
+    assert body["items_count"] == 0
+
+
+async def test_empty_cart_is_not_valid(client, b2b_recorder):
+    async with client as ac:
+        response = await ac.get("/api/v1/cart", headers=auth_headers())
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["items"] == []
+    assert body["items_count"] == 0
+    assert body["is_valid"] is False
