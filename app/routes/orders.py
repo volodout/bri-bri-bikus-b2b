@@ -4,7 +4,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
 from app.auth import user_id_from_jwt
-from app.errors import EmptyOrderItems, InvalidOrderQuantity, InvalidRequest, MissingIdempotencyKey
+from app.errors import InvalidRequest, MissingIdempotencyKey
 from app.orders import OrderLine, OrderService, to_order_response
 from app.query_parsing import validate_uuid
 
@@ -21,14 +21,14 @@ async def create_order(request: Request) -> JSONResponse:
     body = await _json_body(request)
 
     idempotency_key = _idempotency_key(request, body)
-    lines = _order_lines(body)
     address_id = _required_uuid(body, "address_id")
     payment_method_id = _required_uuid(body, "payment_method_id")
     comment = _comment(body)
+    items_snapshot = _items_snapshot(body)
 
     service = get_order_service(request)
     order, created = await service.create_order(
-        user_id, idempotency_key, lines, address_id, payment_method_id, comment
+        user_id, idempotency_key, address_id, payment_method_id, comment, items_snapshot
     )
     return JSONResponse(status_code=201 if created else 200, content=to_order_response(order))
 
@@ -63,24 +63,23 @@ def _idempotency_key(request: Request, body: dict) -> str:
     return valid
 
 
-def _order_lines(body: dict) -> list[OrderLine]:
-    raw_items = body.get("items")
-    if not isinstance(raw_items, list) or not raw_items:
-        raise EmptyOrderItems()
+def _items_snapshot(body: dict) -> list[OrderLine] | None:
+    raw_items = body.get("items_snapshot")
+    if raw_items is None:
+        return None
+    if not isinstance(raw_items, list):
+        raise InvalidRequest("items_snapshot должен быть массивом")
     lines: list[OrderLine] = []
     for raw in raw_items:
         if not isinstance(raw, dict):
-            raise InvalidRequest("Каждая позиция должна быть объектом")
+            raise InvalidRequest("Каждая позиция items_snapshot должна быть объектом")
         sku_id_raw = raw.get("sku_id")
-        if not isinstance(sku_id_raw, str):
-            raise InvalidRequest("sku_id должен быть UUID")
-        sku_id = validate_uuid(sku_id_raw, field="sku_id")
-        if sku_id is None:
+        if not isinstance(sku_id_raw, str) or validate_uuid(sku_id_raw, field="sku_id") is None:
             raise InvalidRequest("sku_id должен быть UUID")
         quantity = raw.get("quantity")
-        if not isinstance(quantity, int) or isinstance(quantity, bool):
-            raise InvalidOrderQuantity()
-        lines.append(OrderLine(sku_id=sku_id, quantity=quantity))
+        if not isinstance(quantity, int) or isinstance(quantity, bool) or quantity < 1:
+            raise InvalidRequest("quantity должен быть положительным целым")
+        lines.append(OrderLine(sku_id=sku_id_raw, quantity=quantity))
     return lines
 
 

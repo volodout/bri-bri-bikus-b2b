@@ -21,10 +21,12 @@ from app.addresses import (
     to_address_response,
 )
 from app.b2b_client import B2BClient
+from app.cart import CartIdentity, CartRepository
 from app.errors import (
     AddressNotFound,
     B2BUnavailable,
     CancelNotAllowed,
+    CartSnapshotMismatch,
     EmptyOrderItems,
     InvalidOrderQuantity,
     NotFound,
@@ -288,25 +290,29 @@ class OrderService:
         repository: OrderRepository,
         b2b_client: B2BClient,
         address_repository: AddressRepository,
+        cart_repository: CartRepository,
     ) -> None:
         self._repository = repository
         self._b2b_client = b2b_client
         self._address_repository = address_repository
+        self._cart_repository = cart_repository
 
     async def create_order(
         self,
         user_id: str,
         idempotency_key: str,
-        lines: list[OrderLine],
         address_id: str,
         payment_method_id: str,
         comment: str | None,
+        items_snapshot: list[OrderLine] | None,
     ) -> tuple[Order, bool]:
         existing = await self._repository.find_by_idempotency_key(idempotency_key)
         if existing is not None:
             return existing, False
 
+        lines = await self._cart_lines(user_id)
         _validate_lines(lines)
+        _check_snapshot(lines, items_snapshot)
 
         address = await self._address_repository.get(address_id, user_id)
         if address is None:
@@ -356,6 +362,11 @@ class OrderService:
             )
             return OrderStatus.CANCEL_PENDING
         return OrderStatus.CANCELLED
+
+    async def _cart_lines(self, user_id: str) -> list[OrderLine]:
+        identity = CartIdentity(user_id=user_id, session_id=None)
+        items = await self._cart_repository.list_items(identity)
+        return [OrderLine(sku_id=item.sku_id, quantity=item.quantity) for item in items]
 
     async def _resolve_sku(self, sku_id: str) -> tuple[dict, dict]:
         try:
@@ -411,6 +422,15 @@ def _validate_lines(lines: list[OrderLine]) -> None:
         raise EmptyOrderItems()
     if any(line.quantity < 1 for line in lines):
         raise InvalidOrderQuantity()
+
+
+def _check_snapshot(lines: list[OrderLine], snapshot: list[OrderLine] | None) -> None:
+    if snapshot is None:
+        return
+    cart = {line.sku_id: line.quantity for line in lines}
+    declared = {line.sku_id: line.quantity for line in snapshot}
+    if cart != declared:
+        raise CartSnapshotMismatch()
 
 
 def _failure_reason(product: dict, sku: dict, quantity: int) -> str | None:

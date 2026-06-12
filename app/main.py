@@ -80,7 +80,7 @@ def create_app(
     app.state.collection_service = CollectionService(collections_repo, client)
     app.state.order_repository = orders_repo
     app.state.address_repository = addresses_repo
-    app.state.order_service = OrderService(orders_repo, client, addresses_repo)
+    app.state.order_service = OrderService(orders_repo, client, addresses_repo, cart_repo)
 
     app.add_exception_handler(CatalogError, catalog_error_handler)
     app.add_exception_handler(StarletteHTTPException, http_exception_handler)
