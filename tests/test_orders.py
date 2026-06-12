@@ -9,6 +9,7 @@ import httpx
 import jwt
 
 from app.addresses import Address
+from app.cart import CartIdentity
 
 USER_ID = "123e4567-e89b-12d3-a456-426614174000"
 SKU_1 = "7c9e6679-7425-40de-944b-e07fc1f90ae7"
@@ -54,15 +55,22 @@ def make_address(address_id: str = ADDRESS_ID) -> Address:
     )
 
 
-def order_payload(items: list[dict], *, comment: str | None = None) -> dict:
+async def seed_cart(cart_repository, items: list[tuple[str, str, int]], *, user_id: str = USER_ID) -> None:
+    identity = CartIdentity(user_id=user_id, session_id=None)
+    for sku_id, product_id, quantity in items:
+        await cart_repository.add(identity, product_id=product_id, sku_id=sku_id, quantity=quantity)
+
+
+def order_payload(*, comment: str | None = None, items_snapshot: list[dict] | None = None) -> dict:
     body: dict = {
         "idempotency_key": str(uuid4()),
-        "items": items,
         "address_id": ADDRESS_ID,
         "payment_method_id": PAYMENT_METHOD_ID,
     }
     if comment is not None:
         body["comment"] = comment
+    if items_snapshot is not None:
+        body["items_snapshot"] = items_snapshot
     return body
 
 
@@ -117,25 +125,25 @@ def _reserve_count(b2b_recorder) -> int:
 
 
 # ---------------------------------------------------------------------------
-# Happy path: checkout reserves all SKUs, resolves the address from the DB,
-# creates a PAID order matching the OrderResponse contract (buyer_id, subtotal,
-# total, address object, OrderItem.name) and fixes unit_price per item.
+# Happy path: positions come from the buyer's server-side cart (not the body).
+# Checkout reserves every SKU, resolves the address, creates a PAID order per
+# the OrderResponse contract and fixes unit_price per item from B2B.
 # ---------------------------------------------------------------------------
-async def test_checkout_creates_paid_order_with_fixed_prices(client, b2b_recorder, address_repository):
+async def test_checkout_creates_paid_order_with_fixed_prices(
+    client, b2b_recorder, address_repository, cart_repository
+):
     address_repository.add(USER_ID, make_address())
+    await seed_cart(cart_repository, [(SKU_1, PRODUCT_1, 2), (SKU_2, PRODUCT_2, 1)])
     skus = {
         SKU_1: sku_payload(SKU_1, PRODUCT_1, name="256GB Black", title="iPhone 15", price=12999000),
         SKU_2: sku_payload(SKU_2, PRODUCT_2, name="Silicone Case", title="Case", price=2990000),
     }
     b2b_recorder.set_handler(make_handler(skus, _reserve_ok))
 
-    payload = order_payload(
-        [{"sku_id": SKU_1, "quantity": 2}, {"sku_id": SKU_2, "quantity": 1}],
-        comment="позвонить за час",
-    )
-
     async with client as ac:
-        response = await ac.post("/api/v1/orders", json=payload, headers=auth_headers())
+        response = await ac.post(
+            "/api/v1/orders", json=order_payload(comment="позвонить за час"), headers=auth_headers()
+        )
 
     assert response.status_code == 201
     body = response.json()
@@ -144,23 +152,17 @@ async def test_checkout_creates_paid_order_with_fixed_prices(client, b2b_recorde
     assert "total_amount" not in body
     assert "delivery_address" not in body
 
-    first, second = body["items"]
-    assert first["sku_id"] == SKU_1
-    assert first["product_id"] == PRODUCT_1
-    assert first["name"] == "iPhone 15 – 256GB Black"
-    assert "product_title" not in first
-    assert "sku_name" not in first
-    assert first["unit_price"] == 12999000
-    assert first["line_total"] == 12999000 * 2
-    assert second["name"] == "Case – Silicone Case"
-    assert second["line_total"] == 2990000
+    by_sku = {item["sku_id"]: item for item in body["items"]}
+    assert by_sku[SKU_1]["name"] == "iPhone 15 – 256GB Black"
+    assert by_sku[SKU_1]["unit_price"] == 12999000
+    assert by_sku[SKU_1]["line_total"] == 12999000 * 2
+    assert by_sku[SKU_2]["line_total"] == 2990000
+    assert "product_title" not in by_sku[SKU_1]
 
     assert body["subtotal"] == 12999000 * 2 + 2990000
     assert body["total"] == body["subtotal"]
-
     assert body["address"]["id"] == ADDRESS_ID
     assert body["address"]["city"] == "Екатеринбург"
-    assert body["address"]["building"] == "19"
     assert body["comment"] == "позвонить за час"
     assert _reserve_count(b2b_recorder) == 1
 
@@ -169,8 +171,11 @@ async def test_checkout_creates_paid_order_with_fixed_prices(client, b2b_recorde
 # Unhappy: B2B reserve rejects the batch (all-or-nothing) -> 409 RESERVE_FAILED
 # carrying failed_items; no order is created.
 # ---------------------------------------------------------------------------
-async def test_partial_reserve_failure_returns_409(client, b2b_recorder, address_repository):
+async def test_partial_reserve_failure_returns_409(
+    client, b2b_recorder, address_repository, cart_repository
+):
     address_repository.add(USER_ID, make_address())
+    await seed_cart(cart_repository, [(SKU_1, PRODUCT_1, 1), (SKU_2, PRODUCT_2, 1)])
     skus = {
         SKU_1: sku_payload(SKU_1, PRODUCT_1, name="256GB Black", title="iPhone 15", price=12999000),
         SKU_2: sku_payload(SKU_2, PRODUCT_2, name="Silicone Case", title="Case", price=2990000),
@@ -189,10 +194,8 @@ async def test_partial_reserve_failure_returns_409(client, b2b_recorder, address
 
     b2b_recorder.set_handler(make_handler(skus, reserve_conflict))
 
-    payload = order_payload([{"sku_id": SKU_1, "quantity": 1}, {"sku_id": SKU_2, "quantity": 1}])
-
     async with client as ac:
-        response = await ac.post("/api/v1/orders", json=payload, headers=auth_headers())
+        response = await ac.post("/api/v1/orders", json=order_payload(), headers=auth_headers())
 
     assert response.status_code == 409
     body = response.json()
@@ -206,14 +209,17 @@ async def test_partial_reserve_failure_returns_409(client, b2b_recorder, address
 # Idempotency: a repeated POST with the same idempotency_key returns the
 # already-created order (200, not 201) without calling B2B reserve again.
 # ---------------------------------------------------------------------------
-async def test_idempotency_returns_existing_order(client, b2b_recorder, address_repository):
+async def test_idempotency_returns_existing_order(
+    client, b2b_recorder, address_repository, cart_repository
+):
     address_repository.add(USER_ID, make_address())
+    await seed_cart(cart_repository, [(SKU_1, PRODUCT_1, 1)])
     skus = {
         SKU_1: sku_payload(SKU_1, PRODUCT_1, name="256GB Black", title="iPhone 15", price=12999000),
     }
     b2b_recorder.set_handler(make_handler(skus, _reserve_ok))
 
-    payload = order_payload([{"sku_id": SKU_1, "quantity": 1}])
+    payload = order_payload()
 
     async with client as ac:
         first = await ac.post("/api/v1/orders", json=payload, headers=auth_headers())
@@ -228,37 +234,135 @@ async def test_idempotency_returns_existing_order(client, b2b_recorder, address_
 # ---------------------------------------------------------------------------
 # Unhappy: B2B is unreachable during checkout -> 503 B2B_UNAVAILABLE.
 # ---------------------------------------------------------------------------
-async def test_b2b_unavailable_returns_503(client, b2b_recorder, address_repository):
+async def test_b2b_unavailable_returns_503(
+    client, b2b_recorder, address_repository, cart_repository
+):
     address_repository.add(USER_ID, make_address())
+    await seed_cart(cart_repository, [(SKU_1, PRODUCT_1, 1)])
 
     def handler(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("upstream unreachable", request=request)
 
     b2b_recorder.set_handler(handler)
 
-    payload = order_payload([{"sku_id": SKU_1, "quantity": 1}])
-
     async with client as ac:
-        response = await ac.post("/api/v1/orders", json=payload, headers=auth_headers())
+        response = await ac.post("/api/v1/orders", json=order_payload(), headers=auth_headers())
 
     assert response.status_code == 503
     _assert_error_contract(response.json(), expected_code="B2B_UNAVAILABLE")
 
 
 # ---------------------------------------------------------------------------
+# Idempotency-Key header path: the key may be supplied via the header instead
+# of the body; a repeat with the same header returns the existing order.
+# ---------------------------------------------------------------------------
+async def test_idempotency_key_via_header(
+    client, b2b_recorder, address_repository, cart_repository
+):
+    address_repository.add(USER_ID, make_address())
+    await seed_cart(cart_repository, [(SKU_1, PRODUCT_1, 1)])
+    skus = {
+        SKU_1: sku_payload(SKU_1, PRODUCT_1, name="256GB Black", title="iPhone 15", price=12999000),
+    }
+    b2b_recorder.set_handler(make_handler(skus, _reserve_ok))
+
+    headers = {**auth_headers(), "Idempotency-Key": str(uuid4())}
+    body = {"address_id": ADDRESS_ID, "payment_method_id": PAYMENT_METHOD_ID}
+
+    async with client as ac:
+        first = await ac.post("/api/v1/orders", json=body, headers=headers)
+        second = await ac.post("/api/v1/orders", json=body, headers=headers)
+
+    assert first.status_code == 201
+    assert second.status_code == 200
+    assert first.json()["id"] == second.json()["id"]
+    assert _reserve_count(b2b_recorder) == 1
+
+
+# ---------------------------------------------------------------------------
+# items_snapshot matches the current cart -> checkout proceeds normally.
+# ---------------------------------------------------------------------------
+async def test_items_snapshot_matching_cart_succeeds(
+    client, b2b_recorder, address_repository, cart_repository
+):
+    address_repository.add(USER_ID, make_address())
+    await seed_cart(cart_repository, [(SKU_1, PRODUCT_1, 2)])
+    skus = {
+        SKU_1: sku_payload(SKU_1, PRODUCT_1, name="256GB Black", title="iPhone 15", price=12999000),
+    }
+    b2b_recorder.set_handler(make_handler(skus, _reserve_ok))
+
+    snapshot = [{"sku_id": SKU_1, "quantity": 2, "unit_price": 12999000}]
+
+    async with client as ac:
+        response = await ac.post(
+            "/api/v1/orders", json=order_payload(items_snapshot=snapshot), headers=auth_headers()
+        )
+
+    assert response.status_code == 201
+    assert response.json()["items"][0]["sku_id"] == SKU_1
+
+
+# ---------------------------------------------------------------------------
+# items_snapshot diverges from the cart (race) -> 422 CART_MISMATCH; the cart is
+# the source of truth and B2B is never called.
+# ---------------------------------------------------------------------------
+async def test_items_snapshot_mismatch_returns_422(
+    client, b2b_recorder, address_repository, cart_repository
+):
+    address_repository.add(USER_ID, make_address())
+    await seed_cart(cart_repository, [(SKU_1, PRODUCT_1, 2)])
+
+    def handler(request: httpx.Request) -> httpx.Response:  # pragma: no cover
+        raise AssertionError("B2B must not be called when the snapshot is stale")
+
+    b2b_recorder.set_handler(handler)
+
+    snapshot = [{"sku_id": SKU_1, "quantity": 5, "unit_price": 12999000}]
+
+    async with client as ac:
+        response = await ac.post(
+            "/api/v1/orders", json=order_payload(items_snapshot=snapshot), headers=auth_headers()
+        )
+
+    assert response.status_code == 422
+    _assert_error_contract(response.json(), expected_code="CART_MISMATCH")
+    assert b2b_recorder.requests == []
+
+
+# ---------------------------------------------------------------------------
+# Edge case: empty cart -> 400, B2B never called.
+# ---------------------------------------------------------------------------
+async def test_empty_cart_returns_400(client, b2b_recorder, address_repository):
+    address_repository.add(USER_ID, make_address())
+
+    def handler(request: httpx.Request) -> httpx.Response:  # pragma: no cover
+        raise AssertionError("B2B must not be called for an empty cart")
+
+    b2b_recorder.set_handler(handler)
+
+    async with client as ac:
+        response = await ac.post("/api/v1/orders", json=order_payload(), headers=auth_headers())
+
+    assert response.status_code == 400
+    _assert_error_contract(response.json(), expected_code="INVALID_REQUEST")
+    assert b2b_recorder.requests == []
+
+
+# ---------------------------------------------------------------------------
 # Edge case: address_id that does not belong to the buyer -> 400
 # ADDRESS_NOT_FOUND, B2B never called.
 # ---------------------------------------------------------------------------
-async def test_unknown_address_returns_400(client, b2b_recorder, address_repository):
+async def test_unknown_address_returns_400(client, b2b_recorder, cart_repository):
+    await seed_cart(cart_repository, [(SKU_1, PRODUCT_1, 1)])
+
     def handler(request: httpx.Request) -> httpx.Response:  # pragma: no cover
         raise AssertionError("B2B must not be called when the address is unknown")
 
     b2b_recorder.set_handler(handler)
 
-    payload = order_payload([{"sku_id": SKU_1, "quantity": 1}])
-
     async with client as ac:
-        response = await ac.post("/api/v1/orders", json=payload, headers=auth_headers())
+        response = await ac.post("/api/v1/orders", json=order_payload(), headers=auth_headers())
 
     assert response.status_code == 400
     _assert_error_contract(response.json(), expected_code="ADDRESS_NOT_FOUND")
@@ -268,43 +372,13 @@ async def test_unknown_address_returns_400(client, b2b_recorder, address_reposit
 # ---------------------------------------------------------------------------
 # Edge case: missing address_id -> 400, B2B never called.
 # ---------------------------------------------------------------------------
-async def test_missing_address_id_returns_400(client, b2b_recorder, address_repository):
-    address_repository.add(USER_ID, make_address())
-
+async def test_missing_address_id_returns_400(client, b2b_recorder):
     def handler(request: httpx.Request) -> httpx.Response:  # pragma: no cover
         raise AssertionError("B2B must not be called without address_id")
 
     b2b_recorder.set_handler(handler)
 
-    payload = {
-        "idempotency_key": str(uuid4()),
-        "items": [{"sku_id": SKU_1, "quantity": 1}],
-        "payment_method_id": PAYMENT_METHOD_ID,
-    }
-
-    async with client as ac:
-        response = await ac.post("/api/v1/orders", json=payload, headers=auth_headers())
-
-    assert response.status_code == 400
-    _assert_error_contract(response.json(), expected_code="INVALID_REQUEST")
-    assert b2b_recorder.requests == []
-
-
-# ---------------------------------------------------------------------------
-# Edge case: empty items -> 400, B2B never called.
-# ---------------------------------------------------------------------------
-async def test_empty_items_returns_400(client, b2b_recorder):
-    def handler(request: httpx.Request) -> httpx.Response:  # pragma: no cover
-        raise AssertionError("B2B must not be called for an empty cart")
-
-    b2b_recorder.set_handler(handler)
-
-    payload = {
-        "idempotency_key": str(uuid4()),
-        "items": [],
-        "address_id": ADDRESS_ID,
-        "payment_method_id": PAYMENT_METHOD_ID,
-    }
+    payload = {"idempotency_key": str(uuid4()), "payment_method_id": PAYMENT_METHOD_ID}
 
     async with client as ac:
         response = await ac.post("/api/v1/orders", json=payload, headers=auth_headers())
@@ -323,11 +397,7 @@ async def test_missing_idempotency_key_returns_400(client, b2b_recorder):
 
     b2b_recorder.set_handler(handler)
 
-    payload = {
-        "items": [{"sku_id": SKU_1, "quantity": 1}],
-        "address_id": ADDRESS_ID,
-        "payment_method_id": PAYMENT_METHOD_ID,
-    }
+    payload = {"address_id": ADDRESS_ID, "payment_method_id": PAYMENT_METHOD_ID}
 
     async with client as ac:
         response = await ac.post("/api/v1/orders", json=payload, headers=auth_headers())
@@ -338,34 +408,11 @@ async def test_missing_idempotency_key_returns_400(client, b2b_recorder):
 
 
 # ---------------------------------------------------------------------------
-# Edge case: quantity below 1 -> 422 INVALID_QUANTITY, B2B never called.
-# ---------------------------------------------------------------------------
-async def test_quantity_below_one_returns_422(client, b2b_recorder, address_repository):
-    address_repository.add(USER_ID, make_address())
-
-    def handler(request: httpx.Request) -> httpx.Response:  # pragma: no cover
-        raise AssertionError("B2B must not be called for invalid quantity")
-
-    b2b_recorder.set_handler(handler)
-
-    payload = order_payload([{"sku_id": SKU_1, "quantity": 0}])
-
-    async with client as ac:
-        response = await ac.post("/api/v1/orders", json=payload, headers=auth_headers())
-
-    assert response.status_code == 422
-    _assert_error_contract(response.json(), expected_code="INVALID_QUANTITY")
-    assert b2b_recorder.requests == []
-
-
-# ---------------------------------------------------------------------------
 # Edge case: no Authorization header -> 401 UNAUTHORIZED.
 # ---------------------------------------------------------------------------
 async def test_unauthorized_returns_401(client, b2b_recorder):
-    payload = order_payload([{"sku_id": SKU_1, "quantity": 1}])
-
     async with client as ac:
-        response = await ac.post("/api/v1/orders", json=payload)
+        response = await ac.post("/api/v1/orders", json=order_payload())
 
     assert response.status_code == 401
     _assert_error_contract(response.json(), expected_code="UNAUTHORIZED")

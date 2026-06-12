@@ -78,7 +78,19 @@ def order_repository():
 
 
 @pytest.fixture
-def client(b2b_recorder, banner_repository, collection_repository, order_repository, address_repository):
+def cart_repository():
+    return InMemoryCartRepository()
+
+
+@pytest.fixture
+def client(
+    b2b_recorder,
+    banner_repository,
+    collection_repository,
+    order_repository,
+    address_repository,
+    cart_repository,
+):
     b2b = B2BClient(
         base_url="http://b2b.test",
         service_key="test-service-key",
@@ -88,7 +100,7 @@ def client(b2b_recorder, banner_repository, collection_repository, order_reposit
         b2b_client=b2b,
         favorite_repository=InMemoryFavoriteRepository(),
         subscription_repository=InMemoryProductSubscriptionRepository(),
-        cart_repository=InMemoryCartRepository(),
+        cart_repository=cart_repository,
         banner_repository=banner_repository,
         collection_repository=collection_repository,
         order_repository=order_repository,

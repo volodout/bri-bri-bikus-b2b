@@ -146,6 +146,11 @@ class AddressNotFound(CatalogError):
         super().__init__(400, "ADDRESS_NOT_FOUND", message)
 
 
+class CartSnapshotMismatch(CatalogError):
+    def __init__(self, message: str = "Корзина изменилась с момента оформления"):
+        super().__init__(422, "CART_MISMATCH", message)
+
+
 class OrderNotFound(CatalogError):
     def __init__(self, message: str = "Заказ не найден"):
         super().__init__(404, "ORDER_NOT_FOUND", message)
