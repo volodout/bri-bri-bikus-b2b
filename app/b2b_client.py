@@ -150,6 +150,20 @@ class B2BClient:
             return None
         raise B2BUnavailable(f"Unreserve failed with status {response.status_code}")
 
+    async def fulfill(self, order_id: str, items: list[Mapping[str, Any]]) -> None:
+        client = self._client()
+        body = {"order_id": order_id, "items": [dict(item) for item in items]}
+        try:
+            response = await client.post("/api/v1/inventory/fulfill", json=body)
+        except (httpx.ConnectError, httpx.ReadError, httpx.TimeoutException, httpx.NetworkError):
+            raise B2BUnavailable()
+        except httpx.HTTPError as exc:
+            raise B2BUnavailable(f"Upstream transport error: {exc.__class__.__name__}")
+
+        if 200 <= response.status_code < 300:
+            return None
+        raise B2BUnavailable(f"Fulfill failed with status {response.status_code}")
+
     async def get_facets(self, query: list[tuple[str, str]]) -> dict:
         return await self._get("/api/v1/catalog/facets", query)
 

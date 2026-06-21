@@ -139,7 +139,6 @@ async def test_orders_list_pagination_offset(client, order_repository):
     assert b2["total_count"] == 3
     assert len(b2["items"]) == 1
 
-    # No overlap
     ids1 = {item["id"] for item in b1["items"]}
     ids2 = {item["id"] for item in b2["items"]}
     assert not ids1.intersection(ids2)

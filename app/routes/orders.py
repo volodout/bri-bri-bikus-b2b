@@ -4,7 +4,8 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
 from app.auth import user_id_from_jwt
-from app.errors import InvalidRequest, MissingIdempotencyKey
+from app.config import settings
+from app.errors import InvalidRequest, MissingIdempotencyKey, Unauthorized
 from app.orders import OrderLine, OrderService, OrderStatus, to_order_response, to_order_short_response
 from app.query_parsing import validate_pagination, validate_uuid
 
@@ -63,6 +64,17 @@ async def create_order(request: Request) -> JSONResponse:
         user_id, idempotency_key, address_id, payment_method_id, comment, items_snapshot
     )
     return JSONResponse(status_code=201 if created else 200, content=to_order_response(order))
+
+
+@router.post("/api/v1/orders/{order_id}/deliver")
+async def deliver_order(request: Request, order_id: str) -> JSONResponse:
+    _require_service_key(request)
+    if validate_uuid(order_id, field="order_id") is None:
+        raise InvalidRequest("order_id must be a valid UUID")
+
+    service = get_order_service(request)
+    order = await service.deliver_order(order_id)
+    return JSONResponse(status_code=200, content=to_order_response(order))
 
 
 @router.post("/api/v1/orders/{order_id}/cancel")
@@ -132,6 +144,12 @@ def _comment(body: dict) -> str | None:
     if not isinstance(value, str):
         raise InvalidRequest("comment должен быть строкой")
     return value
+
+
+def _require_service_key(request: Request) -> None:
+    key = request.headers.get("X-Service-Key")
+    if not key or key != settings.b2b_service_key:
+        raise Unauthorized("Invalid or missing X-Service-Key")
 
 
 def _int_query(request: Request, name: str) -> int | None:
