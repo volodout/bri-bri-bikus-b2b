@@ -20,12 +20,18 @@ from app.errors import (
 from app.config import settings
 from app.favorites import FavoriteRepository, FavoriteService, PostgresFavoriteRepository
 from app.orders import OrderRepository, OrderService, PostgresOrderRepository
+from app.product_events import (
+    EventIdempotencyRepository,
+    InMemoryEventIdempotencyRepository,
+    PostgresEventIdempotencyRepository,
+    ProductEventService,
+)
 from app.subscriptions import (
     PostgresProductSubscriptionRepository,
     ProductSubscriptionRepository,
     ProductSubscriptionService,
 )
-from app.routes import banners, cart, categories, collections, facets, favorites, orders, products
+from app.routes import banners, b2b_events, cart, categories, collections, facets, favorites, orders, products
 
 
 def create_app(
@@ -37,6 +43,7 @@ def create_app(
     collection_repository: CollectionRepository | None = None,
     order_repository: OrderRepository | None = None,
     address_repository: AddressRepository | None = None,
+    event_idempotency_repository: EventIdempotencyRepository | None = None,
 ) -> FastAPI:
     client = b2b_client or B2BClient()
     favorites_repo = favorite_repository or PostgresFavoriteRepository(settings.database_url)
@@ -46,6 +53,7 @@ def create_app(
     collections_repo = collection_repository or PostgresCollectionRepository(settings.database_url)
     orders_repo = order_repository or PostgresOrderRepository(settings.database_url)
     addresses_repo = address_repository or PostgresAddressRepository(settings.database_url)
+    events_repo = event_idempotency_repository or PostgresEventIdempotencyRepository(settings.database_url)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -59,6 +67,7 @@ def create_app(
             await collections_repo.aclose()
             await orders_repo.aclose()
             await addresses_repo.aclose()
+            await events_repo.aclose()
             await client.aclose()
 
     app = FastAPI(
@@ -81,6 +90,7 @@ def create_app(
     app.state.order_repository = orders_repo
     app.state.address_repository = addresses_repo
     app.state.order_service = OrderService(orders_repo, client, addresses_repo, cart_repo)
+    app.state.product_event_service = ProductEventService(events_repo, cart_repo)
 
     app.add_exception_handler(CatalogError, catalog_error_handler)
     app.add_exception_handler(StarletteHTTPException, http_exception_handler)
@@ -94,6 +104,7 @@ def create_app(
     app.include_router(banners.router)
     app.include_router(collections.router)
     app.include_router(orders.router)
+    app.include_router(b2b_events.router)
     return app
 
 

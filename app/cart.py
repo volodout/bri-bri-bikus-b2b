@@ -41,6 +41,7 @@ class CartItem:
     quantity: int
     created_at: datetime
     updated_at: datetime
+    unavailable_reason: str | None = None
 
 
 class CartRepository(Protocol):
@@ -61,6 +62,10 @@ class CartRepository(Protocol):
     async def list_items(self, identity: CartIdentity) -> list[CartItem]: ...
 
     async def merge_guest_into_user(self, user_id: str, session_id: str) -> None: ...
+
+    async def mark_by_product_id(self, product_id: str, reason: str) -> None: ...
+
+    async def mark_by_sku_id(self, sku_id: str, reason: str) -> None: ...
 
     async def aclose(self) -> None: ...
 
@@ -138,6 +143,18 @@ class InMemoryCartRepository:
                 self._items[merged.id] = merged
                 del self._items[guest_item.id]
 
+    async def mark_by_product_id(self, product_id: str, reason: str) -> None:
+        now = datetime.now(timezone.utc)
+        for item_id, item in list(self._items.items()):
+            if item.product_id == product_id:
+                self._items[item_id] = replace(item, unavailable_reason=reason, updated_at=now)
+
+    async def mark_by_sku_id(self, sku_id: str, reason: str) -> None:
+        now = datetime.now(timezone.utc)
+        for item_id, item in list(self._items.items()):
+            if item.sku_id == sku_id:
+                self._items[item_id] = replace(item, unavailable_reason=reason, updated_at=now)
+
     async def aclose(self) -> None:
         return None
 
@@ -173,7 +190,7 @@ class PostgresCartRepository:
                             ON CONFLICT (user_id, sku_id) WHERE user_id IS NOT NULL
                             DO UPDATE SET quantity = cart_items.quantity + EXCLUDED.quantity, updated_at = now()
                             RETURNING id::text, user_id::text, session_id, product_id::text, sku_id::text,
-                                      quantity, created_at, updated_at,
+                                      quantity, unavailable_reason, created_at, updated_at,
                                       (xmax = 0) AS created
                         )
                         SELECT *
@@ -194,7 +211,7 @@ class PostgresCartRepository:
                             ON CONFLICT (session_id, sku_id) WHERE session_id IS NOT NULL
                             DO UPDATE SET quantity = cart_items.quantity + EXCLUDED.quantity, updated_at = now()
                             RETURNING id::text, user_id::text, session_id, product_id::text, sku_id::text,
-                                      quantity, created_at, updated_at,
+                                      quantity, unavailable_reason, created_at, updated_at,
                                       (xmax = 0) AS created
                         )
                         SELECT *
@@ -220,7 +237,7 @@ class PostgresCartRepository:
                     OR ($3::uuid IS NULL AND session_id = $4)
                 )
                 RETURNING id::text, user_id::text, session_id, product_id::text, sku_id::text,
-                          quantity, created_at, updated_at
+                          quantity, unavailable_reason, created_at, updated_at
                 """,
                 UUID(item_id),
                 quantity,
@@ -268,7 +285,7 @@ class PostgresCartRepository:
             rows = await connection.fetch(
                 """
                 SELECT id::text, user_id::text, session_id, product_id::text, sku_id::text,
-                       quantity, created_at, updated_at
+                       quantity, unavailable_reason, created_at, updated_at
                 FROM cart_items
                 WHERE ($1::uuid IS NOT NULL AND user_id = $1::uuid)
                 OR ($1::uuid IS NULL AND session_id = $2)
@@ -323,6 +340,24 @@ class PostgresCartRepository:
                         )
                         await connection.execute("DELETE FROM cart_items WHERE id = $1", row["id"])
                 await connection.execute("DELETE FROM cart_items WHERE session_id = $1", session_id)
+
+    async def mark_by_product_id(self, product_id: str, reason: str) -> None:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE cart_items SET unavailable_reason = $1, updated_at = now() WHERE product_id = $2",
+                reason,
+                UUID(product_id),
+            )
+
+    async def mark_by_sku_id(self, sku_id: str, reason: str) -> None:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE cart_items SET unavailable_reason = $1, updated_at = now() WHERE sku_id = $2",
+                reason,
+                UUID(sku_id),
+            )
 
     async def aclose(self) -> None:
         if self._pool is not None:
@@ -406,7 +441,11 @@ class CartService:
         if not items:
             return _empty_cart()
 
-        products = await self._products_by_id(items)
+        items_needing_b2b = [item for item in items if item.unavailable_reason is None]
+        products: dict[str, dict] = {}
+        if items_needing_b2b:
+            products = await self._products_by_id(items_needing_b2b)
+
         enriched = [_enrich_item(item, products.get(item.product_id)) for item in items]
         return _cart_payload(enriched)
 
@@ -463,6 +502,7 @@ def _cart_item_from_row(row: Any) -> CartItem:
         product_id=str(row["product_id"]),
         sku_id=str(row["sku_id"]),
         quantity=int(row["quantity"]),
+        unavailable_reason=row["unavailable_reason"],
         created_at=_parse_datetime(row["created_at"]),
         updated_at=_parse_datetime(row["updated_at"]),
     )
@@ -493,6 +533,8 @@ def _ensure_sku_can_be_added(product: dict, sku: dict, quantity: int) -> None:
 
 
 def _enrich_item(item: CartItem, product: dict | None) -> dict:
+    if item.unavailable_reason is not None:
+        return _unavailable_item(item, item.unavailable_reason)
     if product is None:
         return _unavailable_item(item, "PRODUCT_DELETED")
 
