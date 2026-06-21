@@ -14,6 +14,7 @@ from app.collections import InMemoryCollectionRepository
 from app.favorites import InMemoryFavoriteRepository
 from app.main import create_app
 from app.orders import InMemoryOrderRepository
+from app.product_events import InMemoryEventIdempotencyRepository
 from app.subscriptions import InMemoryProductSubscriptionRepository
 
 
@@ -83,6 +84,11 @@ def cart_repository():
 
 
 @pytest.fixture
+def event_idempotency_repository():
+    return InMemoryEventIdempotencyRepository()
+
+
+@pytest.fixture
 def client(
     b2b_recorder,
     banner_repository,
@@ -90,6 +96,7 @@ def client(
     order_repository,
     address_repository,
     cart_repository,
+    event_idempotency_repository,
 ):
     b2b = B2BClient(
         base_url="http://b2b.test",
@@ -105,6 +112,7 @@ def client(
         collection_repository=collection_repository,
         order_repository=order_repository,
         address_repository=address_repository,
+        event_idempotency_repository=event_idempotency_repository,
     )
     transport = httpx.ASGITransport(app=app)
     return httpx.AsyncClient(transport=transport, base_url="http://b2c.test")
