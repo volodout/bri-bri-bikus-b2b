@@ -27,6 +27,7 @@ from app.errors import (
     B2BUnavailable,
     CancelNotAllowed,
     CartSnapshotMismatch,
+    DeliverNotAllowed,
     EmptyOrderItems,
     InvalidOrderQuantity,
     NotFound,
@@ -101,6 +102,8 @@ class OrderRepository(Protocol):
 
     async def get_by_id(self, order_id: str, user_id: str) -> Order | None: ...
 
+    async def get_any_by_id(self, order_id: str) -> Order | None: ...
+
     async def save(self, order: Order) -> None: ...
 
     async def list_by_status(self, status: OrderStatus) -> list[Order]: ...
@@ -138,6 +141,9 @@ class InMemoryOrderRepository:
         if order is None or order.user_id != user_id:
             return None
         return order
+
+    async def get_any_by_id(self, order_id: str) -> Order | None:
+        return self._orders.get(order_id)
 
     async def save(self, order: Order) -> None:
         self._orders[order.id] = order
@@ -256,6 +262,24 @@ class PostgresOrderRepository:
                 """,
                 UUID(order_id),
                 UUID(user_id),
+            )
+            if order_row is None:
+                return None
+            item_rows = await connection.fetch(_ORDER_ITEMS_QUERY, UUID(order_id))
+        return _order_from_rows(order_row, item_rows)
+
+    async def get_any_by_id(self, order_id: str) -> Order | None:
+        pool = await self._get_pool()
+        async with pool.acquire() as connection:
+            order_row = await connection.fetchrow(
+                """
+                SELECT id::text, user_id::text, status, total_amount,
+                       address, payment_method_id::text, comment,
+                       idempotency_key::text, created_at, updated_at
+                FROM orders
+                WHERE id = $1
+                """,
+                UUID(order_id),
             )
             if order_row is None:
                 return None
@@ -432,6 +456,30 @@ class OrderService:
         await self._repository.save(cancelled)
         return cancelled
 
+    async def deliver_order(self, order_id: str) -> Order:
+        order = await self._repository.get_any_by_id(order_id)
+        if order is None:
+            raise OrderNotFound()
+        if order.status not in (OrderStatus.DELIVERING, OrderStatus.DELIVERED):
+            raise DeliverNotAllowed(order.status.value)
+
+        if order.status == OrderStatus.DELIVERING:
+            delivered = replace(order, status=OrderStatus.DELIVERED, updated_at=datetime.now(timezone.utc))
+            await self._repository.save(delivered)
+            order = delivered
+
+        await self._try_fulfill(order)
+        return order
+
+    async def _try_fulfill(self, order: Order) -> None:
+        try:
+            await self._b2b_client.fulfill(order.id, _fulfill_items(order))
+        except B2BUnavailable as exc:
+            logger.warning(
+                "fulfill failed, will retry asynchronously",
+                extra={"order_id": order.id, "reason": exc.message},
+            )
+
     async def _unreserve_outcome(self, order: Order) -> OrderStatus:
         try:
             await self._b2b_client.unreserve(order.id, _unreserve_items(order))
@@ -493,7 +541,29 @@ async def retry_pending_cancellations(
     return cancelled
 
 
+async def retry_pending_fulfillments(
+    repository: OrderRepository, b2b_client: B2BClient
+) -> int:
+    # B2B fulfill is idempotent by order_id, so scanning all DELIVERED orders is safe.
+    delivered = await repository.list_by_status(OrderStatus.DELIVERED)
+    fulfilled = 0
+    for order in delivered:
+        try:
+            await b2b_client.fulfill(order.id, _fulfill_items(order))
+            fulfilled += 1
+        except B2BUnavailable as exc:
+            logger.warning(
+                "fulfill retry failed, will retry next cycle",
+                extra={"order_id": order.id, "reason": exc.message},
+            )
+    return fulfilled
+
+
 def _unreserve_items(order: Order) -> list[dict[str, Any]]:
+    return [{"sku_id": item.sku_id, "quantity": item.quantity} for item in order.items]
+
+
+def _fulfill_items(order: Order) -> list[dict[str, Any]]:
     return [{"sku_id": item.sku_id, "quantity": item.quantity} for item in order.items]
 
 
