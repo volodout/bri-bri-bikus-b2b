@@ -5,14 +5,46 @@ from fastapi.responses import JSONResponse
 
 from app.auth import user_id_from_jwt
 from app.errors import InvalidRequest, MissingIdempotencyKey
-from app.orders import OrderLine, OrderService, to_order_response
-from app.query_parsing import validate_uuid
+from app.orders import OrderLine, OrderService, OrderStatus, to_order_response, to_order_short_response
+from app.query_parsing import validate_pagination, validate_uuid
 
 router = APIRouter()
 
 
 def get_order_service(request: Request) -> OrderService:
     return request.app.state.order_service
+
+
+@router.get("/api/v1/orders")
+async def list_orders(request: Request) -> JSONResponse:
+    user_id = user_id_from_jwt(request)
+    limit_raw = _int_query(request, "limit")
+    offset_raw = _int_query(request, "offset")
+    limit, offset = validate_pagination(limit_raw, offset_raw)
+    status = _parse_order_status(request.query_params.get("status"))
+
+    service = get_order_service(request)
+    orders, total = await service.list_orders(user_id, limit, offset, status)
+    return JSONResponse(
+        status_code=200,
+        content={
+            "items": [to_order_short_response(o) for o in orders],
+            "total_count": total,
+            "limit": limit,
+            "offset": offset,
+        },
+    )
+
+
+@router.get("/api/v1/orders/{order_id}")
+async def get_order(request: Request, order_id: str) -> JSONResponse:
+    user_id = user_id_from_jwt(request)
+    if validate_uuid(order_id, field="order_id") is None:
+        raise InvalidRequest("order_id must be a valid UUID")
+
+    service = get_order_service(request)
+    order = await service.get_order(user_id, order_id)
+    return JSONResponse(status_code=200, content=to_order_response(order))
 
 
 @router.post("/api/v1/orders")
@@ -100,3 +132,25 @@ def _comment(body: dict) -> str | None:
     if not isinstance(value, str):
         raise InvalidRequest("comment должен быть строкой")
     return value
+
+
+def _int_query(request: Request, name: str) -> int | None:
+    raw = request.query_params.get(name)
+    if raw is None:
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        raise InvalidRequest(f"{name} must be an integer")
+
+
+def _parse_order_status(raw: str | None) -> OrderStatus | None:
+    if raw is None:
+        return None
+    try:
+        return OrderStatus(raw)
+    except ValueError:
+        raise InvalidRequest(
+            f"Invalid status: {raw!r}. Allowed: "
+            + ", ".join(s.value for s in OrderStatus)
+        )

@@ -105,6 +105,14 @@ class OrderRepository(Protocol):
 
     async def list_by_status(self, status: OrderStatus) -> list[Order]: ...
 
+    async def list_for_user(
+        self,
+        user_id: str,
+        limit: int,
+        offset: int,
+        status: OrderStatus | None,
+    ) -> tuple[list[Order], int]: ...
+
     async def aclose(self) -> None: ...
 
 
@@ -136,6 +144,23 @@ class InMemoryOrderRepository:
 
     async def list_by_status(self, status: OrderStatus) -> list[Order]:
         return [order for order in self._orders.values() if order.status == status]
+
+    async def list_for_user(
+        self,
+        user_id: str,
+        limit: int,
+        offset: int,
+        status: OrderStatus | None,
+    ) -> tuple[list[Order], int]:
+        matching = sorted(
+            [
+                o for o in self._orders.values()
+                if o.user_id == user_id and (status is None or o.status == status)
+            ],
+            key=lambda o: o.created_at,
+            reverse=True,
+        )
+        return matching[offset : offset + limit], len(matching)
 
     async def aclose(self) -> None:
         return None
@@ -271,6 +296,46 @@ class PostgresOrderRepository:
                 orders.append(_order_from_rows(order_row, item_rows))
         return orders
 
+    async def list_for_user(
+        self,
+        user_id: str,
+        limit: int,
+        offset: int,
+        status: OrderStatus | None,
+    ) -> tuple[list[Order], int]:
+        status_val: str | None = status.value if status is not None else None
+        pool = await self._get_pool()
+        async with pool.acquire() as connection:
+            total_row = await connection.fetchrow(
+                """
+                SELECT COUNT(*) FROM orders
+                WHERE user_id = $1 AND ($2::text IS NULL OR status = $2)
+                """,
+                UUID(user_id),
+                status_val,
+            )
+            order_rows = await connection.fetch(
+                """
+                SELECT id::text, user_id::text, status, total_amount,
+                       address, payment_method_id::text, comment,
+                       idempotency_key::text, created_at, updated_at
+                FROM orders
+                WHERE user_id = $1 AND ($2::text IS NULL OR status = $2)
+                ORDER BY created_at DESC
+                LIMIT $3 OFFSET $4
+                """,
+                UUID(user_id),
+                status_val,
+                limit,
+                offset,
+            )
+            total = int(total_row["count"])
+            orders: list[Order] = []
+            for order_row in order_rows:
+                item_rows = await connection.fetch(_ORDER_ITEMS_QUERY, UUID(order_row["id"]))
+                orders.append(_order_from_rows(order_row, item_rows))
+        return orders, total
+
     async def aclose(self) -> None:
         if self._pool is not None:
             await self._pool.close()
@@ -339,6 +404,21 @@ class OrderService:
             order_id, user_id, idempotency_key, address, payment_method_id, comment, resolved
         )
         return await self._repository.create(order)
+
+    async def list_orders(
+        self,
+        user_id: str,
+        limit: int,
+        offset: int,
+        status: OrderStatus | None = None,
+    ) -> tuple[list[Order], int]:
+        return await self._repository.list_for_user(user_id, limit, offset, status)
+
+    async def get_order(self, user_id: str, order_id: str) -> Order:
+        order = await self._repository.get_by_id(order_id, user_id)
+        if order is None:
+            raise OrderNotFound()
+        return order
 
     async def cancel_order(self, user_id: str, order_id: str) -> Order:
         order = await self._repository.get_by_id(order_id, user_id)
@@ -543,6 +623,17 @@ def _item_name(item: OrderItem) -> str:
     return item.product_title or item.sku_name
 
 
+def to_order_short_response(order: Order) -> dict[str, Any]:
+    return {
+        "id": order.id,
+        "status": order.status.value,
+        "total_amount": order.total_amount,
+        "items_count": len(order.items),
+        "created_at": _iso(order.created_at),
+        "updated_at": _iso(order.updated_at),
+    }
+
+
 def to_order_response(order: Order) -> dict[str, Any]:
     subtotal = sum(item.line_total for item in order.items)
     delivery_cost = 0
@@ -552,6 +643,7 @@ def to_order_response(order: Order) -> dict[str, Any]:
         "status": order.status.value,
         "items": [
             {
+                "id": item.id,
                 "sku_id": item.sku_id,
                 "product_id": item.product_id,
                 "name": _item_name(item),
