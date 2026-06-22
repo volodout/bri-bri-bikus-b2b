@@ -23,7 +23,7 @@ HandlerFn = Callable[[httpx.Request], httpx.Response]
 
 @pytest.fixture
 def b2b_recorder():
-    """Records every upstream call made by the B2B client.
+    """Records  every upstream call made by the B2B client.
 
     Tests append a handler and inspect captured requests after the fact.
     """
