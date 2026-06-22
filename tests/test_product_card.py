@@ -7,7 +7,7 @@ SKU_ID_A = "660e8400-e29b-41d4-a716-446655440001"
 SKU_ID_B = "660e8400-e29b-41d4-a716-446655440002"
 
 CATALOG_CARD = f"/api/v1/catalog/products/{PRODUCT_ID}"
-B2B_CARD = f"/api/v1/products/{PRODUCT_ID}"
+B2B_CARD = f"/api/v1/public/products/{PRODUCT_ID}"
 
 
 def _full_b2b_payload(skus: list[dict]) -> dict:

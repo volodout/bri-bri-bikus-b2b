@@ -152,7 +152,7 @@ async def test_search_combines_with_filters_and_category(client, b2b_recorder):
             params=[
                 ("q", "наушники"),
                 ("category_id", category_id),
-                ("filters[brand]", "Sony"),
+                ("filter[brand]", "Sony"),
                 ("sort", "price_asc"),
             ],
         )

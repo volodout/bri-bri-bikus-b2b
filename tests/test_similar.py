@@ -8,7 +8,7 @@ PRODUCT_ID = "770e8400-e29b-41d4-a716-446655440002"
 CATEGORY_ID = "123e4567-e89b-12d3-a456-426614174001"
 
 CATALOG_SIMILAR = f"/api/v1/catalog/products/{PRODUCT_ID}/similar"
-B2B_SIMILAR = f"/api/v1/products/{PRODUCT_ID}/similar"
+B2B_SIMILAR = f"/api/v1/public/products/{PRODUCT_ID}/similar"
 
 
 def _short_item(product_id: str, title: str, *, min_price: int = 9999000) -> dict:

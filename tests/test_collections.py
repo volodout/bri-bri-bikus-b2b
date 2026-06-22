@@ -83,7 +83,7 @@ async def test_collection_products_enriched_from_b2b(client, collection_reposito
     collection_repository.add_product(CollectionProduct(COLLECTION_ID, SECOND_PRODUCT_ID, 2))
 
     def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/api/v1/products"
+        assert request.url.path == "/api/v1/public/products/batch"
         assert request.url.params.get("ids") == f"{PRODUCT_ID},{SECOND_PRODUCT_ID}"
         return httpx.Response(
             200,
@@ -116,7 +116,7 @@ async def test_unavailable_products_in_unavailable_ids(client, collection_reposi
     collection_repository.add_product(CollectionProduct(COLLECTION_ID, MISSING_PRODUCT_ID, 2))
 
     def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/api/v1/products"
+        assert request.url.path == "/api/v1/public/products/batch"
         return httpx.Response(200, json={"items": [product_payload(PRODUCT_ID, title="Phone")]})
 
     b2b_recorder.set_handler(handler)

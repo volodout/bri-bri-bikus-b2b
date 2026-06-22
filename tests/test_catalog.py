@@ -35,7 +35,7 @@ async def test_catalog_returns_filtered_sorted_products(client, b2b_recorder):
     }
 
     def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/api/v1/products"
+        assert request.url.path == "/api/v1/public/products"
         assert request.headers.get("X-Service-Key") == "test-service-key"
         return httpx.Response(200, json=b2b_payload)
 
@@ -46,8 +46,9 @@ async def test_catalog_returns_filtered_sorted_products(client, b2b_recorder):
             "/api/v1/catalog/products",
             params=[
                 ("category_id", CATEGORY_ID),
-                ("filters[brand]", "Apple"),
-                ("filters[color]", "черный"),
+                # Public contract uses singular `filter[...]`; B2C re-emits plural.
+                ("filter[brand]", "Apple"),
+                ("filter[color]", "черный"),
                 ("sort", "price_asc"),
                 ("limit", "20"),
                 ("offset", "0"),
@@ -61,6 +62,7 @@ async def test_catalog_returns_filtered_sorted_products(client, b2b_recorder):
 
     query = b2b_recorder.last_query
     assert ("category_id", CATEGORY_ID) in query
+    # Translated to B2B's plural `filters[...]`.
     assert ("filters[brand]", "Apple") in query
     assert ("filters[color]", "черный") in query
     assert ("sort", "price_asc") in query
@@ -104,7 +106,7 @@ async def test_facets_return_counts_per_filter_value(client, b2b_recorder):
             "/api/v1/catalog/facets",
             params=[
                 ("category_id", CATEGORY_ID),
-                ("filters[brand]", "Apple"),
+                ("filter[brand]", "Apple"),
             ],
         )
 
@@ -136,9 +138,27 @@ async def test_invalid_sort_returns_400(client, b2b_recorder):
     body = response.json()
     assert body["code"] == "INVALID_REQUEST"
     msg = body["message"]
-    for allowed in ("rating", "popularity", "price_asc", "price_desc", "date_desc", "discount_desc"):
+    for allowed in ("price_asc", "price_desc", "popularity", "new"):
         assert allowed in msg, f"expected '{allowed}' in error message, got: {msg!r}"
     assert b2b_recorder.requests == []  # never called upstream
+
+
+# ---------------------------------------------------------------------------
+# Contract: `sort=new` (B2C openapi enum) is accepted and forwarded to B2B.
+# Guards against regressing the sort whitelist back to the stale canon values.
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize("sort_value", ["price_asc", "price_desc", "popularity", "new"])
+async def test_contract_sort_values_forwarded(client, b2b_recorder, sort_value):
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"items": [], "total_count": 0, "limit": 20, "offset": 0})
+
+    b2b_recorder.set_handler(handler)
+
+    async with client as ac:
+        response = await ac.get("/api/v1/catalog/products", params={"sort": sort_value})
+
+    assert response.status_code == 200
+    assert ("sort", sort_value) in b2b_recorder.last_query
 
 
 # ---------------------------------------------------------------------------

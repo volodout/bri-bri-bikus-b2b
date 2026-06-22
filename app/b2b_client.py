@@ -87,20 +87,22 @@ class B2BClient:
         return await self._request_json(path, params)
 
     async def list_products(self, query: list[tuple[str, str]]) -> dict:
-        return await self._get("/api/v1/products", query)
+        return await self._get("/api/v1/public/products", query)
 
     async def list_products_by_ids(self, product_ids: list[str]) -> dict:
-        return await self._get("/api/v1/products", [("ids", ",".join(product_ids))])
+        return await self._get(
+            "/api/v1/public/products/batch", [("ids", ",".join(product_ids))]
+        )
 
     async def get_product(self, product_id: str) -> dict:
-        return await self._get(f"/api/v1/products/{product_id}", ())
+        return await self._get(f"/api/v1/public/products/{product_id}", ())
 
     async def get_sku(self, sku_id: str) -> dict:
         return await self._get(f"/api/v1/skus/{sku_id}", ())
 
     async def get_similar_products(self, product_id: str, limit: int) -> list[dict[str, Any]]:
         result = await self._request_json(
-            f"/api/v1/products/{product_id}/similar", [("limit", str(limit))]
+            f"/api/v1/public/products/{product_id}/similar", [("limit", str(limit))]
         )
         if not isinstance(result, list):
             raise B2BUnavailable("Upstream returned unexpected shape for similar products")

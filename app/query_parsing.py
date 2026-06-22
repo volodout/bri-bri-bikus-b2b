@@ -6,15 +6,16 @@ from typing import Iterable
 from app.errors import InvalidRequest
 
 ALLOWED_SORTS: tuple[str, ...] = (
-    "rating",
-    "popularity",
     "price_asc",
     "price_desc",
-    "date_desc",
-    "discount_desc",
+    "popularity",
+    "new",
 )
 
-_FILTER_KEY_RE = re.compile(r"^filters\[([A-Za-z0-9_]+)\]$")
+# Public B2C contract uses the singular `filter[key]` deepObject key. B2B
+# expects the plural `filters[key]` — we translate on the way out
+# (see `extract_filters`).
+_FILTER_KEY_RE = re.compile(r"^filter\[([A-Za-z0-9_]+)\]$")
 _UUID_RE = re.compile(
     r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
 )
@@ -74,7 +75,8 @@ def validate_search(value: str | None) -> str | None:
 
 
 def extract_filters(items: Iterable[tuple[str, str]]) -> list[tuple[str, str]]:
-    """Pull `filters[key]=value` pairs from raw query items.
+    """Pull public `filter[key]=value` pairs and re-emit them as B2B's
+    plural `filters[key]=value`.
 
     Preserves order and allows repeated values (e.g. multi-select).
     """
