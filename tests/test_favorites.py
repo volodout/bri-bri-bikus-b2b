@@ -57,7 +57,7 @@ def product(product_id: str = PRODUCT_ID, title: str = "iPhone 15 Pro Max") -> d
 
 async def test_add_to_favorites_returns_204(client, b2b_recorder):
     def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == f"/api/v1/products/{PRODUCT_ID}"
+        assert request.url.path == f"/api/v1/public/products/{PRODUCT_ID}"
         assert request.headers.get("X-Service-Key") == "test-service-key"
         return httpx.Response(200, json=product())
 
@@ -72,9 +72,9 @@ async def test_add_to_favorites_returns_204(client, b2b_recorder):
 
 async def test_get_favorites_enriched_from_b2b(client, b2b_recorder):
     def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.path == f"/api/v1/products/{PRODUCT_ID}":
+        if request.url.path == f"/api/v1/public/products/{PRODUCT_ID}":
             return httpx.Response(200, json=product())
-        assert request.url.path == "/api/v1/products"
+        assert request.url.path == "/api/v1/public/products/batch"
         query = parse_qs(request.url.query.decode())
         assert query["ids"] == [PRODUCT_ID]
         return httpx.Response(200, json={"items": [product()], "total_count": 1})
@@ -94,7 +94,7 @@ async def test_get_favorites_enriched_from_b2b(client, b2b_recorder):
 
 async def test_repeat_add_returns_204_not_duplicate(client, b2b_recorder):
     def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.path == f"/api/v1/products/{PRODUCT_ID}":
+        if request.url.path == f"/api/v1/public/products/{PRODUCT_ID}":
             return httpx.Response(200, json=product())
         return httpx.Response(200, json={"items": [product()], "total_count": 1})
 
@@ -117,11 +117,11 @@ async def test_blocked_product_excluded_from_list(client, b2b_recorder):
     blocked = product(BLOCKED_PRODUCT_ID, "Blocked product")
 
     def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.path == f"/api/v1/products/{PRODUCT_ID}":
+        if request.url.path == f"/api/v1/public/products/{PRODUCT_ID}":
             return httpx.Response(200, json=visible)
-        if request.url.path == f"/api/v1/products/{BLOCKED_PRODUCT_ID}":
+        if request.url.path == f"/api/v1/public/products/{BLOCKED_PRODUCT_ID}":
             return httpx.Response(200, json=blocked)
-        assert request.url.path == "/api/v1/products"
+        assert request.url.path == "/api/v1/public/products/batch"
         query = parse_qs(request.url.query.decode())
         assert query["ids"] == [f"{BLOCKED_PRODUCT_ID},{PRODUCT_ID}"]
         return httpx.Response(200, json={"items": [visible], "total_count": 1})
@@ -141,7 +141,7 @@ async def test_blocked_product_excluded_from_list(client, b2b_recorder):
 
 async def test_user_id_from_query_is_ignored(client, b2b_recorder):
     def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.path == f"/api/v1/products/{PRODUCT_ID}":
+        if request.url.path == f"/api/v1/public/products/{PRODUCT_ID}":
             return httpx.Response(200, json=product())
         return httpx.Response(200, json={"items": [product()], "total_count": 1})
 
@@ -191,7 +191,7 @@ async def test_b2b_unavailable_returns_503_for_favorites(client, b2b_recorder, m
 
 async def test_subscribe_returns_204_with_events(client, b2b_recorder):
     def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == f"/api/v1/products/{PRODUCT_ID}"
+        assert request.url.path == f"/api/v1/public/products/{PRODUCT_ID}"
         return httpx.Response(200, json=product())
 
     b2b_recorder.set_handler(handler)
@@ -259,7 +259,7 @@ async def test_invalid_notify_on_returns_400(client, b2b_recorder, payload):
 
 async def test_subscribe_without_events_uses_default(client, b2b_recorder):
     def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == f"/api/v1/products/{PRODUCT_ID}"
+        assert request.url.path == f"/api/v1/public/products/{PRODUCT_ID}"
         return httpx.Response(200, json=product())
 
     b2b_recorder.set_handler(handler)
