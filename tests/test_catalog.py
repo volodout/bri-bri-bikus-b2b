@@ -96,7 +96,7 @@ async def test_facets_return_counts_per_filter_value(client, b2b_recorder):
     }
 
     def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/api/v1/public/facets"
+        assert request.url.path == "/api/v1/public/catalog/facets"
         return httpx.Response(200, json=b2b_payload)
 
     b2b_recorder.set_handler(handler)

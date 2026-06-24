@@ -180,13 +180,13 @@ class B2BClient:
         raise B2BUnavailable(f"Unreserve failed with status {response.status_code}")
 
     async def get_facets(self, query: list[tuple[str, str]]) -> dict:
-        # Facets live under the B2B public-catalog namespace (X-Service-Key),
-        # alongside /api/v1/public/products{,/batch,/{id},/{id}/similar}.
-        # NOTE: this endpoint is not yet published in neomarket-protocols
-        # (b2b/openapi.yaml has no facets path). See docs/adr/0001-facets-
-        # computation.md — until B2B publishes GET /api/v1/public/facets the
-        # call resolves to 502 (surfaced as UPSTREAM_UNAVAILABLE).
-        return await self._get("/api/v1/public/facets", query)
+        # B2B public-catalog facets (X-Service-Key), alongside
+        # /api/v1/public/products{,/batch,/{id},/{id}/similar}. Path matches the
+        # reference impl kazantsevgit/neomarket (B2B public.py serves
+        # /api/v1/public/catalog/facets). NOTE: not yet in neomarket-protocols
+        # b2b/openapi.yaml — until B2B publishes it the call resolves to 502
+        # (UPSTREAM_UNAVAILABLE). See docs/adr/0001-facets-computation.md.
+        return await self._get("/api/v1/public/catalog/facets", query)
 
     async def list_categories(self) -> list[dict[str, Any]]:
         result = await self._request_json("/api/v1/categories", ())
