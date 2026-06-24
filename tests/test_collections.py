@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import date, datetime, timedelta, timezone
 
 import httpx
@@ -84,15 +85,13 @@ async def test_collection_products_enriched_from_b2b(client, collection_reposito
 
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/api/v1/public/products/batch"
-        assert request.url.params.get("ids") == f"{PRODUCT_ID},{SECOND_PRODUCT_ID}"
+        assert json.loads(request.content)["product_ids"] == [PRODUCT_ID, SECOND_PRODUCT_ID]
         return httpx.Response(
             200,
-            json={
-                "items": [
-                    product_payload(PRODUCT_ID, title="Phone"),
-                    product_payload(SECOND_PRODUCT_ID, title="Case"),
-                ]
-            },
+            json=[
+                product_payload(PRODUCT_ID, title="Phone"),
+                product_payload(SECOND_PRODUCT_ID, title="Case"),
+            ],
         )
 
     b2b_recorder.set_handler(handler)
@@ -117,7 +116,7 @@ async def test_unavailable_products_in_unavailable_ids(client, collection_reposi
 
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/api/v1/public/products/batch"
-        return httpx.Response(200, json={"items": [product_payload(PRODUCT_ID, title="Phone")]})
+        return httpx.Response(200, json=[product_payload(PRODUCT_ID, title="Phone")])
 
     b2b_recorder.set_handler(handler)
 

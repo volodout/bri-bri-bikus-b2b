@@ -86,13 +86,40 @@ class B2BClient:
     async def _get(self, path: str, params: list[tuple[str, str]] | Mapping[str, Any]) -> dict:
         return await self._request_json(path, params)
 
+    async def _post_json(self, path: str, body: Mapping[str, Any]) -> Any:
+        client = self._client()
+        try:
+            response = await client.post(path, json=dict(body))
+        except (httpx.ConnectError, httpx.ReadError, httpx.TimeoutException, httpx.NetworkError):
+            raise B2BUnavailable()
+        except httpx.HTTPError as exc:
+            raise B2BUnavailable(f"Upstream transport error: {exc.__class__.__name__}")
+
+        status = response.status_code
+        if 200 <= status < 300:
+            try:
+                return response.json()
+            except ValueError:
+                raise B2BUnavailable("Upstream returned invalid JSON")
+        if status == 400:
+            raise InvalidRequest(_extract_message(_safe_json(response), "Invalid request"))
+        if status == 404:
+            raise NotFound(_extract_message(_safe_json(response), "Not found"))
+        if status in (502, 503, 504):
+            raise B2BUnavailable()
+        raise B2BUnavailable(f"Unexpected upstream status: {status}")
+
     async def list_products(self, query: list[tuple[str, str]]) -> dict:
         return await self._get("/api/v1/public/products", query)
 
     async def list_products_by_ids(self, product_ids: list[str]) -> dict:
-        return await self._get(
-            "/api/v1/public/products/batch", [("ids", ",".join(product_ids))]
+        # B2B batch is POST {product_ids:[...]} and returns a bare array of
+        # ProductPublicResponse. Wrap it as {"items": [...]} for callers.
+        result = await self._post_json(
+            "/api/v1/public/products/batch", {"product_ids": list(product_ids)}
         )
+        items = result if isinstance(result, list) else result.get("items", [])
+        return {"items": items}
 
     async def get_product(self, product_id: str) -> dict:
         return await self._get(f"/api/v1/public/products/{product_id}", ())

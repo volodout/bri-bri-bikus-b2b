@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+import json
 import time
-from urllib.parse import parse_qs
 from uuid import uuid4
 
 import httpx
@@ -75,9 +75,8 @@ async def test_get_favorites_enriched_from_b2b(client, b2b_recorder):
         if request.url.path == f"/api/v1/public/products/{PRODUCT_ID}":
             return httpx.Response(200, json=product())
         assert request.url.path == "/api/v1/public/products/batch"
-        query = parse_qs(request.url.query.decode())
-        assert query["ids"] == [PRODUCT_ID]
-        return httpx.Response(200, json={"items": [product()], "total_count": 1})
+        assert json.loads(request.content)["product_ids"] == [PRODUCT_ID]
+        return httpx.Response(200, json=[product()])
 
     b2b_recorder.set_handler(handler)
 
@@ -96,7 +95,7 @@ async def test_repeat_add_returns_204_not_duplicate(client, b2b_recorder):
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == f"/api/v1/public/products/{PRODUCT_ID}":
             return httpx.Response(200, json=product())
-        return httpx.Response(200, json={"items": [product()], "total_count": 1})
+        return httpx.Response(200, json=[product()])
 
     b2b_recorder.set_handler(handler)
 
@@ -122,9 +121,8 @@ async def test_blocked_product_excluded_from_list(client, b2b_recorder):
         if request.url.path == f"/api/v1/public/products/{BLOCKED_PRODUCT_ID}":
             return httpx.Response(200, json=blocked)
         assert request.url.path == "/api/v1/public/products/batch"
-        query = parse_qs(request.url.query.decode())
-        assert query["ids"] == [f"{BLOCKED_PRODUCT_ID},{PRODUCT_ID}"]
-        return httpx.Response(200, json={"items": [visible], "total_count": 1})
+        assert json.loads(request.content)["product_ids"] == [BLOCKED_PRODUCT_ID, PRODUCT_ID]
+        return httpx.Response(200, json=[visible])
 
     b2b_recorder.set_handler(handler)
 
@@ -143,7 +141,7 @@ async def test_user_id_from_query_is_ignored(client, b2b_recorder):
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == f"/api/v1/public/products/{PRODUCT_ID}":
             return httpx.Response(200, json=product())
-        return httpx.Response(200, json={"items": [product()], "total_count": 1})
+        return httpx.Response(200, json=[product()])
 
     b2b_recorder.set_handler(handler)
 

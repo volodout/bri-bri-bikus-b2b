@@ -63,7 +63,7 @@ async def test_add_sku_increments_quantity_if_already_in_cart(client, b2b_record
         if request.url.path == f"/api/v1/skus/{SKU_ID}":
             return httpx.Response(200, json=sku_payload(active_quantity=10))
         if request.url.path == "/api/v1/public/products/batch":
-            return httpx.Response(200, json={"items": [product_payload(active_quantity=10)]})
+            return httpx.Response(200, json=[product_payload(active_quantity=10)])
         raise AssertionError(f"unexpected upstream path {request.url.path}")
 
     b2b_recorder.set_handler(handler)
@@ -92,7 +92,7 @@ async def test_get_cart_enriched_with_b2b_data(client, b2b_recorder):
         if request.url.path == f"/api/v1/skus/{SKU_ID}":
             return httpx.Response(200, json=sku_payload(active_quantity=5))
         if request.url.path == "/api/v1/public/products/batch":
-            return httpx.Response(200, json={"items": [product_payload(active_quantity=5, price=1000)]})
+            return httpx.Response(200, json=[product_payload(active_quantity=5, price=1000)])
         raise AssertionError(f"unexpected upstream path {request.url.path}")
 
     b2b_recorder.set_handler(handler)
@@ -120,7 +120,7 @@ async def test_get_cart_item_enriched_with_b2b_data(client, b2b_recorder):
         if request.url.path == f"/api/v1/skus/{SKU_ID}":
             return httpx.Response(200, json=sku_payload(active_quantity=5))
         if request.url.path == "/api/v1/public/products/batch":
-            return httpx.Response(200, json={"items": [product_payload(active_quantity=5, price=1000)]})
+            return httpx.Response(200, json=[product_payload(active_quantity=5, price=1000)])
         raise AssertionError(f"unexpected upstream path {request.url.path}")
 
     b2b_recorder.set_handler(handler)
@@ -149,7 +149,7 @@ async def test_unavailable_sku_shown_with_reason(client, b2b_recorder):
         if request.url.path == f"/api/v1/skus/{SKU_ID}":
             return httpx.Response(200, json=sku_payload(active_quantity=5))
         if request.url.path == "/api/v1/public/products/batch":
-            return httpx.Response(200, json={"items": [product_payload(active_quantity=state["stock"])]})
+            return httpx.Response(200, json=[product_payload(active_quantity=state["stock"])])
         raise AssertionError(f"unexpected upstream path {request.url.path}")
 
     b2b_recorder.set_handler(handler)
@@ -175,7 +175,7 @@ async def test_guest_cart_merged_on_login(client, b2b_recorder):
         if request.url.path == f"/api/v1/skus/{SKU_ID}":
             return httpx.Response(200, json=sku_payload(active_quantity=10))
         if request.url.path == "/api/v1/public/products/batch":
-            return httpx.Response(200, json={"items": [product_payload(active_quantity=10)]})
+            return httpx.Response(200, json=[product_payload(active_quantity=10)])
         raise AssertionError(f"unexpected upstream path {request.url.path}")
 
     b2b_recorder.set_handler(handler)
@@ -207,7 +207,7 @@ async def test_patch_item_updates_quantity_by_sku_id(client, b2b_recorder):
         if request.url.path == f"/api/v1/skus/{SKU_ID}":
             return httpx.Response(200, json=sku_payload(active_quantity=10))
         if request.url.path == "/api/v1/public/products/batch":
-            return httpx.Response(200, json={"items": [product_payload(active_quantity=10)]})
+            return httpx.Response(200, json=[product_payload(active_quantity=10)])
         raise AssertionError(f"unexpected upstream path {request.url.path}")
 
     b2b_recorder.set_handler(handler)
@@ -238,7 +238,7 @@ async def test_items_count_sums_quantities(client, b2b_recorder):
         if request.url.path == f"/api/v1/skus/{SKU_ID}":
             return httpx.Response(200, json=sku_payload(active_quantity=10))
         if request.url.path == "/api/v1/public/products/batch":
-            return httpx.Response(200, json={"items": [product_payload(active_quantity=10)]})
+            return httpx.Response(200, json=[product_payload(active_quantity=10)])
         raise AssertionError(f"unexpected upstream path {request.url.path}")
 
     b2b_recorder.set_handler(handler)
@@ -259,7 +259,7 @@ async def test_delete_item_by_sku_id_returns_cart(client, b2b_recorder):
         if request.url.path == f"/api/v1/skus/{SKU_ID}":
             return httpx.Response(200, json=sku_payload(active_quantity=10))
         if request.url.path == "/api/v1/public/products/batch":
-            return httpx.Response(200, json={"items": [product_payload(active_quantity=10)]})
+            return httpx.Response(200, json=[product_payload(active_quantity=10)])
         raise AssertionError(f"unexpected upstream path {request.url.path}")
 
     b2b_recorder.set_handler(handler)

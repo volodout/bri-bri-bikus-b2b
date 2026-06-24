@@ -12,6 +12,16 @@ ALLOWED_SORTS: tuple[str, ...] = (
     "new",
 )
 
+# Public B2C sort tokens -> B2B `/api/v1/public/products` enum
+# (price_asc, price_desc, created_desc, popular). Forwarding the B2C token
+# verbatim would make B2B 400 on `popularity`/`new`.
+_SORT_B2C_TO_B2B: dict[str, str] = {
+    "price_asc": "price_asc",
+    "price_desc": "price_desc",
+    "popularity": "popular",
+    "new": "created_desc",
+}
+
 # Public B2C contract uses the singular `filter[key]` deepObject key. B2B
 # expects the plural `filters[key]` — we translate on the way out
 # (see `extract_filters`).
@@ -22,13 +32,18 @@ _UUID_RE = re.compile(
 
 
 def validate_sort(value: str | None) -> str | None:
+    """Validate the public B2C sort token and translate it to the B2B enum.
+
+    Returns the B2B-side value (or None) ready to forward upstream. The error
+    message still lists the B2C-contract tokens the client may send.
+    """
     if value is None or value == "":
         return None
     if value not in ALLOWED_SORTS:
         raise InvalidRequest(
             "Invalid sort parameter. Allowed: " + ", ".join(ALLOWED_SORTS)
         )
-    return value
+    return _SORT_B2C_TO_B2B[value]
 
 
 def validate_pagination(limit: int | None, offset: int | None) -> tuple[int, int]:

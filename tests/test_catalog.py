@@ -144,21 +144,34 @@ async def test_invalid_sort_returns_400(client, b2b_recorder):
 
 
 # ---------------------------------------------------------------------------
-# Contract: `sort=new` (B2C openapi enum) is accepted and forwarded to B2B.
-# Guards against regressing the sort whitelist back to the stale canon values.
+# Contract: each public B2C sort token is accepted and TRANSLATED to the B2B
+# enum (price_asc, price_desc, created_desc, popular) before forwarding.
+# Forwarding `popularity`/`new` verbatim would make B2B 400.
 # ---------------------------------------------------------------------------
-@pytest.mark.parametrize("sort_value", ["price_asc", "price_desc", "popularity", "new"])
-async def test_contract_sort_values_forwarded(client, b2b_recorder, sort_value):
+@pytest.mark.parametrize(
+    "b2c_sort, b2b_sort",
+    [
+        ("price_asc", "price_asc"),
+        ("price_desc", "price_desc"),
+        ("popularity", "popular"),
+        ("new", "created_desc"),
+    ],
+)
+async def test_contract_sort_values_translated_for_b2b(client, b2b_recorder, b2c_sort, b2b_sort):
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"items": [], "total_count": 0, "limit": 20, "offset": 0})
 
     b2b_recorder.set_handler(handler)
 
     async with client as ac:
-        response = await ac.get("/api/v1/catalog/products", params={"sort": sort_value})
+        response = await ac.get("/api/v1/catalog/products", params={"sort": b2c_sort})
 
     assert response.status_code == 200
-    assert ("sort", sort_value) in b2b_recorder.last_query
+    query = b2b_recorder.last_query
+    assert ("sort", b2b_sort) in query
+    # The public token must NOT leak upstream unless it is identical.
+    if b2b_sort != b2c_sort:
+        assert ("sort", b2c_sort) not in query
 
 
 # ---------------------------------------------------------------------------
